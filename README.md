@@ -8,7 +8,7 @@
 
 A Lovelace card for Home Assistant that shows **when and how strongly your home battery was charged and discharged** – per day, week and month – with peaks, heatmaps, efficiency, cycles, savings and a "lasts until" forecast.
 
-![Demo](images/demo.gif)
+![Demo](https://raw.githubusercontent.com/muhkuh666/battery-day-card/main/images/demo.gif)
 
 ## Features
 
@@ -36,8 +36,8 @@ A Lovelace card for Home Assistant that shows **when and how strongly your home 
 - **Dark / light / automatic** color scheme, all colors selectable
 - **Everything configurable in the visual editor** – tap any key figure or status chip to open the entity's details
 
-![Views](images/views.png)
-![More](images/more.png)
+![Views](https://raw.githubusercontent.com/muhkuh666/battery-day-card/main/images/views.png)
+![More](https://raw.githubusercontent.com/muhkuh666/battery-day-card/main/images/more.png)
 
 ## Installation
 

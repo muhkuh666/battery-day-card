@@ -1,5 +1,6 @@
 name: Release
-# Erstellt automatisch Tag + Release, sobald CARD_VERSION in battery-day-card.js erhöht wird.
+# Erstellt automatisch Tag + Release, sobald CARD_VERSION in battery-day-card.js erhöht wird –
+# aber nur, wenn die HACS-Validierung vorher erfolgreich war.
 on:
   push:
     branches: [main]
@@ -10,7 +11,15 @@ on:
 permissions:
   contents: write
 jobs:
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: plugin
   release:
+    needs: hacs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

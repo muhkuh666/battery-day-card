@@ -4,7 +4,7 @@
 
 Lovelace-Karte für Home Assistant, die zeigt, **wann und wie stark deine Hausbatterie geladen und entladen wurde** – pro Tag, Woche und Monat – mit Spitzen, Heatmaps, Wirkungsgrad, Zyklen, Ersparnis und „reicht bis“-Prognose.
 
-![Demo](images/demo.gif)
+![Demo](https://raw.githubusercontent.com/muhkuh666/battery-day-card/main/images/demo.gif)
 
 ## Funktionen
 
@@ -32,8 +32,8 @@ Lovelace-Karte für Home Assistant, die zeigt, **wann und wie stark deine Hausba
 - Farbschema **Dunkel / Hell / Automatisch**, alle Farben wählbar
 - **Alles im grafischen Editor einstellbar** – Antippen von Kennzahlen oder Status-Chips öffnet die Detailansicht des Sensors
 
-![Ansichten](images/views.png)
-![Weitere](images/more.png)
+![Ansichten](https://raw.githubusercontent.com/muhkuh666/battery-day-card/main/images/views.png)
+![Weitere](https://raw.githubusercontent.com/muhkuh666/battery-day-card/main/images/more.png)
 
 ## Installation
 

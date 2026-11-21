@@ -1,5 +1,7 @@
 ## Battery Day Card 2.0 🎉
 
+**2.0.1:** HACS store preparation – releases are only published after a successful HACS validation, daily validation, issue templates, absolute image links in the README. · Vorbereitung für den HACS-Store.
+
 Big update – the card now covers **day, week and month** and explains *why* your battery behaves the way it does.
 Großes Update – die Karte zeigt jetzt **Tag, Woche und Monat** und erklärt, *warum* sich die Batterie so verhält.
 
