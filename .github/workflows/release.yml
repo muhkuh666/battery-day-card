@@ -1,8 +1,12 @@
 name: Release
+# Erstellt automatisch Tag + Release, sobald CARD_VERSION in battery-day-card.js erhöht wird.
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    paths:
+      - battery-day-card.js
+      - .github/workflows/release.yml
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -10,13 +14,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Version in der Karte prüfen
+      - name: Version auslesen
+        id: v
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          grep -q "CARD_VERSION = \"$TAG\"" battery-day-card.js || { echo "CARD_VERSION passt nicht zu Tag $GITHUB_REF_NAME"; exit 1; }
+          VERSION=$(grep -oP 'CARD_VERSION = "\K[^"]+' battery-day-card.js)
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release v$VERSION existiert bereits – nichts zu tun."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Release erstellen
+        if: steps.v.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          name: ${{ steps.v.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: battery-day-card.js
-          generate_release_notes: true
           body_path: .github/release-notes.md
+          make_latest: true
