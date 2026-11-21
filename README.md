@@ -12,13 +12,14 @@ Lovelace-Karte für Home Assistant, die zeigt, **wann und wie stark deine Hausba
 - Gespiegeltes Tagesdiagramm: Laden nach oben, Entladen nach unten – als **Fläche** oder **Balken**
 - Tagessummen (kWh) und Maximalleistung mit Uhrzeit für Laden und Entladen
 - Markierte Spitzen im Diagramm, Tooltip beim Darüberfahren (inkl. SoC)
-- Stunden-Heatmap und Top-Stunden für Laden und Entladen
+- Stunden-Heatmap in drei Stilen: **Kachelreihen**, **Netto-Band** oder **Tagesuhr** (24-h-Ring)
+- Top-Stunden für Laden und Entladen
 - Tage zurückblättern (‹ ›)
 - Optional Ladezustand (SoC) als Linie
 - **Zwei Sensoren** (Laden + Entladen) **oder ein Sensor mit Vorzeichen** (+ Laden / − Entladen)
 - Leistungs- (W/kW) und Energiesensoren (Wh/kWh), automatisch erkannt
 - **Alles im grafischen Editor einstellbar** – mit Farbwählern und aufklappbaren Bereichen
-- Passt sich hellem und dunklem Theme an
+- Farbschema: automatisch (HA-Theme) oder fest **Dunkel** / **Hell**
 
 ## Installation
 
@@ -87,8 +88,10 @@ discharge_color: "#e0457b"
 | **Bereiche** | | |
 | `show_stats` | `true` | Kennzahlen (kWh / Max) |
 | `show_heatmap` | `true` | Stunden-Heatmap |
+| `heatmap_style` | `rows` | `rows` (zwei Kachelreihen), `net` (Netto-Band), `clock` (Tagesuhr) |
 | `show_top` | `true` | Top-Stunden |
 | `top_count` | `3` | Anzahl Top-Stunden (1–8) |
+| `theme` | `auto` | Farbschema: `auto` (HA-Theme), `dark`, `light` |
 | **Farben** | | Hex (`"#2fd38a"`), RGB-Liste (`[47, 211, 138]`) oder CSS-Variable (`var(--green-color)`) |
 | `charge_color` | `#2fd38a` | Laden |
 | `discharge_color` | `#ff8a3d` | Entladen |

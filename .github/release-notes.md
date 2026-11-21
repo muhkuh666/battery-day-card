@@ -2,10 +2,10 @@ Lovelace-Karte für Home Assistant: Laden & Entladen der Batterie über den Tag,
 
 **Installation:** HACS → Benutzerdefinierte Repositories → `https://github.com/muhkuh666/battery-day-card` (Typ **Dashboard**)
 
-### Neu in v1.1.0
-- Alles im grafischen Editor einstellbar – aufklappbare Bereiche, echte Farbwähler
-- Ein-Sensor-Modus: ein Leistungssensor mit Vorzeichen (+ Laden / − Entladen), umkehrbar
-- Balkendiagramm als Alternative zur Fläche
-- Diagrammhöhe, feste kW-Skala, Glättung, Gitter, Spitzen-Animation, „jetzt“-Linie, SoC-Linie schaltbar
-- Kennzahlen, Heatmap und Top-Stunden einzeln ausblendbar, Anzahl Top-Stunden 1–8
-- Automatische Sensorerkennung beim Hinzufügen der Karte, SoC im Tooltip
+### Neu in v1.2.0
+- **Heatmap-Stil wählbar:** Kachelreihen (wie bisher), **Netto-Band** (pro Stunde gewinnt die stärkere Richtung) oder **Tagesuhr** (24-h-Ring mit Tagessummen in der Mitte und „jetzt“-Zeiger)
+- **Farbschema:** automatisch (HA-Theme) oder fest **Dunkel** / **Hell** – nur für diese Karte
+- Stundenachse unter der Heatmap, Tooltip mit Laden/Entladen/Netto je Stunde
+- Kennzahl-Beschriftungen werden bei schmalen Karten nicht mehr abgeschnitten
+
+Alle Optionen sind im grafischen Editor einstellbar.

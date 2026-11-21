@@ -3,7 +3,7 @@
  * Zeigt Laden / Entladen der Batterie über den Tag, Spitzen und Top-Stunden.
  * https://github.com/muhkuh666/battery-day-card
  */
-const CARD_VERSION = "1.1.0";
+const CARD_VERSION = "1.2.0";
 
 const DEFAULTS = {
   // Sensoren
@@ -33,9 +33,11 @@ const DEFAULTS = {
   // Bereiche
   show_stats: true,
   show_heatmap: true,
+  heatmap_style: "rows", // rows | net | clock
   show_top: true,
   top_count: 3,
   // Farben
+  theme: "auto", // auto | dark | light
   charge_color: "#2fd38a",
   discharge_color: "#ff8a3d",
   soc_color: "#7aa7ff",
@@ -151,7 +153,7 @@ class BatteryDayCard extends HTMLElement {
 
   getCardSize() {
     const c = this._config || DEFAULTS;
-    return Math.ceil(c.chart_height / 50) + (c.show_stats ? 2 : 0) + (c.show_top ? 2 : 0) + (c.show_heatmap ? 1 : 0) + 1;
+    return Math.ceil(c.chart_height / 50) + (c.show_stats ? 2 : 0) + (c.show_top ? 2 : 0) + (c.show_heatmap ? (c.heatmap_style === "clock" ? 5 : 1) : 0) + 1;
   }
 
   getGridOptions() {
@@ -512,18 +514,94 @@ class BatteryDayCard extends HTMLElement {
   }
 
   _heat(d) {
+    const style = this._config.heatmap_style;
+    if (style === "net") return this._heatNet(d);
+    if (style === "clock") return this._heatClock(d);
+    return this._heatRows(d);
+  }
+
+  _hourAxis(indent) {
+    const spans = Array.from({ length: 24 }, (_, h) => `<span>${h % 3 === 0 ? pad(h) : ""}</span>`).join("");
+    return `<div class="hax${indent ? " indent" : ""}">${spans}</div>`;
+  }
+
+  _hourTitle(h, ch, dis) {
+    return `${pad(h)}–${pad(h + 1)} Uhr · ▲ ${fmtKWh(ch)} kWh · ▼ ${fmtKWh(dis)} kWh`;
+  }
+
+  /** Variante A: zwei Kachelreihen */
+  _heatRows(d) {
     const c = this._config;
+    const ch = d.charge.hourly, dis = d.discharge.hourly;
     const row = (arr, color, label) => {
       const max = Math.max(...arr, 0.001);
       const cells = arr
         .map((e, h) => {
-          const a = e > 0 ? 0.12 + 0.88 * (e / max) : 0.05;
-          return `<div class="cell" style="background:${alpha(color, a)}" title="${pad(h)}–${pad(h + 1)} Uhr: ${fmtKWh(e)} kWh"></div>`;
+          const a = e > 0.005 ? 0.12 + 0.88 * (e / max) : 0.05;
+          return `<div class="cell" style="background:${alpha(color, a)}" title="${this._hourTitle(h, ch[h], dis[h])}"></div>`;
         })
         .join("");
       return `<div class="hrow"><span class="hl" style="color:${color}">${label}</span><div class="cells">${cells}</div></div>`;
     };
-    return `<div class="heat">${row(d.charge.hourly, c.charge_color, "Laden")}${row(d.discharge.hourly, c.discharge_color, "Entl.")}</div>`;
+    return `<div class="heat">${row(ch, c.charge_color, "Laden")}${row(dis, c.discharge_color, "Entl.")}${this._hourAxis(true)}</div>`;
+  }
+
+  /** Variante B: Netto-Band – pro Stunde gewinnt die stärkere Richtung */
+  _heatNet(d) {
+    const c = this._config;
+    const ch = d.charge.hourly, dis = d.discharge.hourly;
+    const max = Math.max(...ch.map((e, h) => Math.abs(e - dis[h])), 0.001);
+    const cells = ch
+      .map((e, h) => {
+        const net = e - dis[h];
+        const col = net >= 0 ? c.charge_color : c.discharge_color;
+        const a = Math.abs(net) > 0.005 ? 0.15 + 0.85 * (Math.abs(net) / max) : 0.05;
+        return `<div class="cell net" style="background:${alpha(col, a)}" title="${this._hourTitle(h, e, dis[h])} · netto ${net >= 0 ? "+" : "−"}${fmtKWh(Math.abs(net))} kWh"></div>`;
+      })
+      .join("");
+    return `<div class="heat">
+      <div class="netlegend"><span style="color:${c.charge_color}">■ mehr geladen</span><span style="color:${c.discharge_color}">■ mehr entladen</span></div>
+      <div class="cells">${cells}</div>${this._hourAxis(false)}</div>`;
+  }
+
+  /** Variante F: Tagesuhr – 24-h-Ring, außen Laden, innen Entladen */
+  _heatClock(d) {
+    const c = this._config;
+    const ch = d.charge.hourly, dis = d.discharge.hourly;
+    const mc = Math.max(...ch, 0.001), md = Math.max(...dis, 0.001);
+    const S = 240, cx = S / 2, cy = S / 2;
+    const P = (r, a) => [cx + r * Math.sin(a), cy - r * Math.cos(a)];
+    const arc = (r1, r2, a0, a1) => {
+      const [x1, y1] = P(r2, a0), [x2, y2] = P(r2, a1), [x3, y3] = P(r1, a1), [x4, y4] = P(r1, a0);
+      return `M${x1},${y1}A${r2},${r2} 0 0 1 ${x2},${y2}L${x3},${y3}A${r1},${r1} 0 0 0 ${x4},${y4}Z`;
+    };
+    let s = "";
+    for (let h = 0; h < 24; h++) {
+      const a0 = (h / 24) * 2 * Math.PI + 0.022, a1 = ((h + 1) / 24) * 2 * Math.PI - 0.022;
+      const ac = ch[h] > 0.005 ? 0.12 + 0.88 * (ch[h] / mc) : 0.06;
+      const ad = dis[h] > 0.005 ? 0.12 + 0.88 * (dis[h] / md) : 0.06;
+      const t = `<title>${this._hourTitle(h, ch[h], dis[h])}</title>`;
+      s += `<path d="${arc(86, 114, a0, a1)}" fill="${alpha(c.charge_color, ac)}">${t}</path>`;
+      s += `<path d="${arc(55, 83, a0, a1)}" fill="${alpha(c.discharge_color, ad)}">${t}</path>`;
+    }
+    for (const h of [0, 6, 12, 18]) {
+      const [x, y] = P(44, (h / 24) * 2 * Math.PI);
+      s += `<text x="${x}" y="${y + 3}" class="ax" text-anchor="middle">${pad(h)}</text>`;
+    }
+    if (this._dayOffset === 0) {
+      const a = ((Date.now() - d.dayStart) / DAY_MS) * 2 * Math.PI;
+      const [x1, y1] = P(52, a), [x2, y2] = P(118, a);
+      s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="now"/>`;
+    }
+    s += `<text x="${cx}" y="${cy - 3}" text-anchor="middle" class="ctot" style="fill:${c.charge_color}">▲ ${fmtKWh(d.charge.total)}</text>`;
+    s += `<text x="${cx}" y="${cy + 16}" text-anchor="middle" class="ctot" style="fill:${c.discharge_color}">▼ ${fmtKWh(d.discharge.total)}</text>`;
+    return `<div class="heat clock">
+      <svg viewBox="0 0 ${S} ${S}" class="clocksvg">${s}</svg>
+      <div class="clocklegend">
+        <span><i style="background:${c.charge_color}"></i>außen: Laden</span>
+        <span><i style="background:${c.discharge_color}"></i>innen: Entladen</span>
+        <span class="muted">Mitte: Summe kWh</span>
+      </div></div>`;
   }
 
   _top(label, hourly, color) {
@@ -585,9 +663,23 @@ class BatteryDayCard extends HTMLElement {
     hit.addEventListener("touchend", leave);
   }
 
+  _themeCss() {
+    const t = this._config.theme;
+    if (t === "dark")
+      return `:host { --primary-text-color:#e6e8eb; --secondary-text-color:#9aa3ad; --card-background-color:#1c2026;
+        --ha-card-background:#1c2026; --divider-color:rgba(255,255,255,.12); --secondary-background-color:#262b33; color-scheme:dark; }
+        ha-card { background:#1c2026 !important; color:#e6e8eb; }`;
+    if (t === "light")
+      return `:host { --primary-text-color:#1d2229; --secondary-text-color:#6b7480; --card-background-color:#ffffff;
+        --ha-card-background:#ffffff; --divider-color:rgba(0,0,0,.1); --secondary-background-color:#eef0f3; color-scheme:light; }
+        ha-card { background:#ffffff !important; color:#1d2229; }`;
+    return "";
+  }
+
   _css() {
     const c = this._config;
     return `
+      ${this._themeCss()}
       :host { display:block; --bdc-charge:${c.charge_color}; --bdc-dis:${c.discharge_color}; --bdc-soc:${c.soc_color}; --bdc-now:${c.now_color}; }
       ha-card { display:block; padding:16px 16px 14px; overflow:hidden; height:100%; box-sizing:border-box; }
       .head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; gap:8px; }
@@ -605,7 +697,8 @@ class BatteryDayCard extends HTMLElement {
       .stat { padding:9px 10px 8px; border-radius:12px; min-width:0;
         background:linear-gradient(135deg, color-mix(in srgb, var(--c) 16%, transparent), color-mix(in srgb, var(--c) 4%, transparent));
         border:1px solid color-mix(in srgb, var(--c) 25%, transparent); }
-      .lbl { font-size:.72rem; color:var(--secondary-text-color); text-transform:uppercase; letter-spacing:.04em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .lbl { font-size:.68rem; color:var(--secondary-text-color); text-transform:uppercase; letter-spacing:.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      @container (max-width:540px){ .lbl{ text-transform:none; letter-spacing:0; font-size:.72rem; } }
       .arr { color:var(--c); margin-right:4px; }
       .val { font-size:1.35rem; font-weight:700; color:var(--primary-text-color); font-variant-numeric:tabular-nums; }
       .val small { font-size:.75rem; font-weight:500; margin-left:3px; color:var(--secondary-text-color); }
@@ -637,6 +730,17 @@ class BatteryDayCard extends HTMLElement {
       .hl { width:36px; font-size:.68rem; font-weight:700; text-align:right; flex:none; }
       .cells { flex:1; display:grid; grid-template-columns:repeat(24,1fr); gap:2px; }
       .cell { height:12px; border-radius:3px; }
+      .cell.net { height:20px; border-radius:4px; }
+      .hax { display:grid; grid-template-columns:repeat(24,1fr); font-size:9.5px; color:var(--secondary-text-color); margin-top:2px; }
+      .hax span { text-align:left; transform:translateX(-30%); }
+      .hax.indent { margin-left:42px; }
+      .netlegend { display:flex; gap:14px; font-size:.7rem; font-weight:600; margin-bottom:4px; }
+      .heat.clock { flex-direction:row; align-items:center; justify-content:center; gap:22px; margin:12px 0 4px; flex-wrap:wrap; }
+      .clocksvg { width:220px; height:220px; flex:none; overflow:visible; }
+      .ctot { font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
+      .clocklegend { display:flex; flex-direction:column; gap:6px; font-size:.78rem; color:var(--primary-text-color); }
+      .clocklegend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
+      .clocklegend .muted { color:var(--secondary-text-color); }
       .tops { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
       .tl { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--secondary-text-color); margin-bottom:5px; }
       .chips { display:flex; flex-direction:column; gap:4px; }
@@ -677,6 +781,8 @@ const LABELS = {
   show_soc: "SoC-Linie anzeigen",
   show_stats: "Kennzahlen (kWh / Spitzen)",
   show_heatmap: "Stunden-Heatmap",
+  heatmap_style: "Heatmap-Stil",
+  theme: "Farbschema",
   show_top: "Top-Stunden",
   top_count: "Anzahl Top-Stunden",
   charge_color: "Farbe Laden",
@@ -690,6 +796,7 @@ const HELPERS = {
   power_entity: "Positiv = Laden, negativ = Entladen (umkehrbar).",
   unit_mode: "Automatisch erkennt W/kW (Leistung) und Wh/kWh (Zähler) an der Einheit.",
   y_max: "Praktisch, um mehrere Tage vergleichbar zu machen.",
+  theme: "Automatisch übernimmt dein Home-Assistant-Theme, Dunkel/Hell erzwingt das Schema nur für diese Karte.",
 };
 
 class BatteryDayCardEditor extends HTMLElement {
@@ -795,6 +902,10 @@ class BatteryDayCardEditor extends HTMLElement {
               { name: "show_top", selector: { boolean: {} } },
             ],
           },
+          {
+            name: "heatmap_style",
+            selector: sel([["rows", "Zwei Kachelreihen (Laden / Entladen)"], ["net", "Netto-Band (eine Reihe)"], ["clock", "Tagesuhr (24-h-Ring)"]]),
+          },
           { name: "top_count", selector: { number: { min: 1, max: 8, step: 1, mode: "slider" } } },
         ],
       },
@@ -805,6 +916,7 @@ class BatteryDayCardEditor extends HTMLElement {
         title: "Farben",
         icon: "mdi:palette",
         schema: [
+          { name: "theme", selector: sel([["auto", "Automatisch (HA-Theme)"], ["dark", "Dunkel"], ["light", "Hell"]]) },
           {
             name: "",
             type: "grid",
