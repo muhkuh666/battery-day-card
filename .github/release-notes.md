@@ -1,11 +1,21 @@
-Lovelace-Karte für Home Assistant: Laden & Entladen der Batterie über den Tag, mit Spitzen, Heatmap und Top-Stunden.
+## Battery Day Card 2.0 🎉
 
-**Installation:** HACS → Benutzerdefinierte Repositories → `https://github.com/muhkuh666/battery-day-card` (Typ **Dashboard**)
+Big update – the card now covers **day, week and month** and explains *why* your battery behaves the way it does.
+Großes Update – die Karte zeigt jetzt **Tag, Woche und Monat** und erklärt, *warum* sich die Batterie so verhält.
 
-### Neu in v1.2.0
-- **Heatmap-Stil wählbar:** Kachelreihen (wie bisher), **Netto-Band** (pro Stunde gewinnt die stärkere Richtung) oder **Tagesuhr** (24-h-Ring mit Tagessummen in der Mitte und „jetzt“-Zeiger)
-- **Farbschema:** automatisch (HA-Theme) oder fest **Dunkel** / **Hell** – nur für diese Karte
-- Stundenachse unter der Heatmap, Tooltip mit Laden/Entladen/Netto je Stunde
-- Kennzahl-Beschriftungen werden bei schmalen Karten nicht mehr abgeschnitten
+### New / Neu
+- **Week & month views** with daily bars, best days and a weekday × hour pattern heatmap · **Wochen- & Monatsansicht** mit Tagesbalken, besten Tagen und Wochentag×Stunde-Muster
+- **Comparison line**: yesterday or Ø 7 days · **Vergleichslinie**: gestern oder Ø 7 Tage
+- **Efficiency, cycles, savings, forecast** ("lasts until ~23:40") · **Wirkungsgrad, Zyklen, Ersparnis, Prognose**
+- **Battery status**: SoC with daily range, state of health (SoH), temperature · **Batterie-Status**: SoC, Gesundheit, Temperatur
+- **PV & grid lines** in the day chart · **PV- & Netzlinien** im Tagesdiagramm
+- **Click to zoom** (2 h, 1-minute resolution) · **Zoom per Klick**
+- **Multiple batteries** with tabs and total view · **Mehrere Batterien** mit Gesamt-Ansicht
+- **Compact layout** · **Kompakt-Layout**
+- **German & English** · **Deutsch & Englisch**
+- Tap key figures / status chips to open entity details · Antippen öffnet die Sensor-Details
+- Visual editor reorganised in sections incl. second battery · Editor in Abschnitten inkl. zweiter Batterie
 
-Alle Optionen sind im grafischen Editor einstellbar.
+Existing configurations keep working. · Bestehende Konfigurationen funktionieren weiter.
+
+**Install:** HACS → Custom repositories → `https://github.com/muhkuh666/battery-day-card` (type **Dashboard**)

@@ -2,106 +2,155 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
 [![Validate](https://github.com/muhkuh666/battery-day-card/actions/workflows/validate.yml/badge.svg)](https://github.com/muhkuh666/battery-day-card/actions/workflows/validate.yml)
+[![GitHub release](https://img.shields.io/github/v/release/muhkuh666/battery-day-card)](https://github.com/muhkuh666/battery-day-card/releases)
 
-Lovelace-Karte für Home Assistant, die zeigt, **wann und wie stark deine Hausbatterie über den Tag geladen und entladen wurde**.
+🇩🇪 [Deutsche Anleitung](README.de.md)
 
-![Vorschau](images/preview.png)
+A Lovelace card for Home Assistant that shows **when and how strongly your home battery was charged and discharged** – per day, week and month – with peaks, heatmaps, efficiency, cycles, savings and a "lasts until" forecast.
 
-## Funktionen
+![Demo](images/demo.gif)
 
-- Gespiegeltes Tagesdiagramm: Laden nach oben, Entladen nach unten – als **Fläche** oder **Balken**
-- Tagessummen (kWh) und Maximalleistung mit Uhrzeit für Laden und Entladen
-- Markierte Spitzen im Diagramm, Tooltip beim Darüberfahren (inkl. SoC)
-- Stunden-Heatmap in drei Stilen: **Kachelreihen**, **Netto-Band** oder **Tagesuhr** (24-h-Ring)
-- Top-Stunden für Laden und Entladen
-- Tage zurückblättern (‹ ›)
-- Optional Ladezustand (SoC) als Linie
-- **Zwei Sensoren** (Laden + Entladen) **oder ein Sensor mit Vorzeichen** (+ Laden / − Entladen)
-- Leistungs- (W/kW) und Energiesensoren (Wh/kWh), automatisch erkannt
-- **Alles im grafischen Editor einstellbar** – mit Farbwählern und aufklappbaren Bereichen
-- Farbschema: automatisch (HA-Theme) oder fest **Dunkel** / **Hell**
+## Features
+
+**Day view**
+- Mirrored chart: charging up, discharging down – area or bars, with "now" line and marked peaks
+- **Comparison line**: yesterday or Ø of the last 7 days (dashed, also shows the expected rest of today)
+- Optional **PV** and **grid import/export** lines to see *why* the battery charges or discharges
+- **Click to zoom**: 2 hours at 1‑minute resolution
+- Heatmap in three styles: **tile rows**, **net band** or **day clock** (24 h ring)
+- Top charging / discharging hours
+
+**Week & month view**
+- Daily bars, best charge/discharge day, top days – click a day to open it
+- **Pattern heatmap** weekday × hour (GitHub‑style)
+
+**Battery status & insights**
+- State of charge (SoC) with today's range, **state of health (SoH)**, **temperature** with today's range
+- **Efficiency** (SoC‑corrected), **full cycles**, **savings** (fixed price or price sensor, e.g. Tibber), **forecast** ("lasts until ~23:40" / "full at ~14:50")
+
+**Everything else**
+- **Multiple batteries** with tabs and a **total** view
+- Two separate sensors **or** one signed power sensor; power (W/kW) or energy (Wh/kWh) – auto‑detected
+- **Compact layout** for phones and side panels
+- **German & English**, follows your Home Assistant language
+- **Dark / light / automatic** color scheme, all colors selectable
+- **Everything configurable in the visual editor** – tap any key figure or status chip to open the entity's details
+
+![Views](images/views.png)
+![More](images/more.png)
 
 ## Installation
 
-### HACS (benutzerdefiniertes Repository)
-1. HACS → ⋮ → *Benutzerdefinierte Repositories*
-2. URL `https://github.com/muhkuh666/battery-day-card`, Typ **Dashboard**
-3. „Battery Day Card“ installieren und den Browser neu laden
+### HACS
+1. HACS → ⋮ → *Custom repositories*
+2. Add `https://github.com/muhkuh666/battery-day-card` with type **Dashboard**
+3. Install **Battery Day Card** and reload your browser
 
-### Manuell
-1. `battery-day-card.js` nach `/config/www/` kopieren
-2. Einstellungen → Dashboards → Ressourcen → `/local/battery-day-card.js` als **JavaScript-Modul**
+### Manual
+1. Copy `battery-day-card.js` to `/config/www/`
+2. Settings → Dashboards → Resources → add `/local/battery-day-card.js` as **JavaScript module**
 
-## Konfiguration
+## Configuration
 
-Am einfachsten über den grafischen Editor: Karte hinzufügen → „Battery Day Card“.
+The easiest way is the visual editor: *Add card → Battery Day Card*. Matching battery sensors are detected automatically.
 
-### Beispiel: zwei Sensoren
+### Minimal
 ```yaml
 type: custom:battery-day-card
-title: Batterie H3 6kW
+charge_entity: sensor.battery_charge
+discharge_entity: sensor.battery_discharge
+```
+
+### Full example
+```yaml
+type: custom:battery-day-card
+title: Home battery
 charge_entity: sensor.h3_6kw_battery_charge
 discharge_entity: sensor.h3_6kw_battery_discharge
 soc_entity: sensor.h3_6kw_battery_soc
+soh_entity: sensor.h3_6kw_battery_soh
+temp_entity: sensor.h3_6kw_battery_temp
+capacity_kwh: 10.4
+min_soc: 10
+pv_entity: sensor.pv_power
+grid_entity: sensor.grid_power
+price_entity: sensor.electricity_price
+compare: avg7
+heatmap_style: net
+theme: dark
 ```
 
-### Beispiel: ein Sensor mit Vorzeichen, Balken
+### Second battery
 ```yaml
-type: custom:battery-day-card
-mode: combined
-power_entity: sensor.battery_power
-invert: false
-chart_type: bars
-bucket_minutes: 30
-charge_color: "#3884ff"
-discharge_color: "#e0457b"
+batteries:
+  - name: Balcony
+    mode: combined
+    power_entity: sensor.balcony_battery_power
+    soc_entity: sensor.balcony_battery_soc
+    capacity_kwh: 2.2
 ```
 
-### Alle Optionen
+### Options
 
-| Option | Standard | Beschreibung |
+| Option | Default | Description |
 |---|---|---|
-| **Sensoren** | | |
-| `mode` | `separate` | `separate` = zwei Sensoren, `combined` = ein Sensor mit Vorzeichen |
-| `charge_entity` | – | Sensor Laden (bei `separate`, Pflicht) |
-| `discharge_entity` | – | Sensor Entladen (bei `separate`, Pflicht) |
-| `power_entity` | – | Batterie-Leistung mit Vorzeichen (bei `combined`, Pflicht) |
-| `invert` | `false` | Vorzeichen umkehren (positiv = Entladen) |
-| `soc_entity` | – | Ladezustand in % (optional) |
-| `unit_mode` | `auto` | `auto`, `power` (W/kW) oder `energy` (Wh/kWh-Zähler) |
-| **Kopfzeile** | | |
-| `title` | `Batterie heute` | Titel |
-| `icon` | `mdi:home-battery` | Symbol (leer = keins) |
-| `show_header` | `true` | Kopfzeile anzeigen |
-| `show_navigation` | `true` | Buttons zum Tage blättern |
-| **Diagramm** | | |
-| `chart_type` | `area` | `area` (Fläche) oder `bars` (Balken) |
-| `bucket_minutes` | `15` | Auflösung: 5 / 10 / 15 / 30 / 60 |
-| `chart_height` | `220` | Höhe des Diagramms in px |
-| `y_max` | `0` | Feste Skala in kW (0 = automatisch) |
-| `smooth` | `true` | Kurve glätten |
-| `show_grid` | `true` | Gitterlinien |
-| `show_peaks` | `true` | Spitzen markieren |
-| `animate_peaks` | `true` | Pulsierende Spitzen-Marker |
-| `show_now_line` | `true` | „jetzt“-Linie |
-| `show_soc` | `true` | SoC-Linie (wenn `soc_entity` gesetzt) |
-| **Bereiche** | | |
-| `show_stats` | `true` | Kennzahlen (kWh / Max) |
-| `show_heatmap` | `true` | Stunden-Heatmap |
-| `heatmap_style` | `rows` | `rows` (zwei Kachelreihen), `net` (Netto-Band), `clock` (Tagesuhr) |
-| `show_top` | `true` | Top-Stunden |
-| `top_count` | `3` | Anzahl Top-Stunden (1–8) |
-| `theme` | `auto` | Farbschema: `auto` (HA-Theme), `dark`, `light` |
-| **Farben** | | Hex (`"#2fd38a"`), RGB-Liste (`[47, 211, 138]`) oder CSS-Variable (`var(--green-color)`) |
-| `charge_color` | `#2fd38a` | Laden |
-| `discharge_color` | `#ff8a3d` | Entladen |
-| `soc_color` | `#7aa7ff` | SoC-Linie |
-| `now_color` | `#03a9f4` | „jetzt“-Linie |
-| **Erweitert** | | |
-| `refresh_minutes` | `5` | Aktualisierungsintervall für den heutigen Tag |
+| **Battery** | | |
+| `name` | – | Name of the battery (tab label) |
+| `mode` | `separate` | `separate` = two sensors, `combined` = one signed power sensor |
+| `charge_entity` / `discharge_entity` | – | Charge / discharge sensor (required for `separate`) |
+| `power_entity` | – | Signed battery power (required for `combined`) |
+| `invert` | `false` | Invert the sign (positive = discharging) |
+| `soc_entity` / `soh_entity` / `temp_entity` | – | State of charge, state of health, temperature |
+| `capacity_kwh` | `0` | Usable capacity – enables cycles, SoC‑corrected efficiency and forecast |
+| `min_soc` | `10` | Discharge limit used by the forecast |
+| `unit_mode` | `auto` | `auto`, `power` (W/kW) or `energy` (Wh/kWh meter) |
+| `batteries` | – | List of further batteries with the keys above |
+| **PV, grid & price** | | |
+| `pv_entity` | – | PV power, drawn as a line |
+| `grid_entity` | – | Grid power (+ import / − export) |
+| `grid_invert` | `false` | Invert the grid sign |
+| `price_entity` | – | Electricity price sensor (averaged per hour) |
+| `price` | `0` | Fixed price per kWh (takes precedence if > 0) |
+| `currency` | `€` | Currency symbol |
+| **Header & view** | | |
+| `title` / `icon` | `Battery` / `mdi:home-battery` | Title and icon |
+| `default_view` | `day` | `day`, `week` or `month` |
+| `language` | `auto` | `auto`, `de` or `en` |
+| `show_header` / `show_navigation` / `show_view_switch` | `true` | Header, ‹ › navigation, day/week/month switch |
+| **Chart** | | |
+| `chart_type` | `area` | `area` or `bars` |
+| `bucket_minutes` | `15` | Resolution: 5 / 10 / 15 / 30 / 60 |
+| `chart_height` | `220` | Height in px |
+| `y_max` | `0` | Fixed scale in kW (0 = auto) |
+| `compare` | `none` | `none`, `yesterday` or `avg7` |
+| `show_pv` / `show_grid_power` / `show_soc` | `true` | Additional lines |
+| `smooth` / `show_grid` / `show_peaks` / `animate_peaks` / `show_now_line` | `true` | Chart details |
+| `zoom_on_click` | `true` | Click into the day chart to zoom into 2 hours |
+| **Sections** | | |
+| `layout` | `full` | `full` or `compact` |
+| `show_stats` / `show_status` / `show_insights` / `show_heatmap` / `show_top` | `true` | Show or hide sections |
+| `heatmap_style` | `rows` | `rows`, `net` or `clock` |
+| `top_count` | `3` | Number of top entries (1–8) |
+| **Colors** | | Hex (`"#2fd38a"`), RGB list or CSS variable |
+| `theme` | `auto` | `auto` (HA theme), `dark`, `light` |
+| `charge_color` / `discharge_color` | `#2fd38a` / `#ff8a3d` | Charge / discharge |
+| `soc_color` / `now_color` / `pv_color` / `grid_color` | `#7aa7ff` / `#03a9f4` / `#f5c542` / `#b07cff` | Lines |
+| **Advanced** | | |
+| `refresh_minutes` | `5` | Refresh interval for the current period |
 
-**Hinweis:** Die Kurve zeigt die mittlere Leistung je Zeitabschnitt, „Max.“ ist der höchste Einzelmesswert und liegt daher meist etwas höher.
+## How values are calculated
 
-## Lizenz
+- **Day view** uses the recorder history; curves show the average power per time slot, "max" is the highest single reading.
+- **Week / month view and comparison line** use Home Assistant's long‑term / short‑term statistics. The sensors need a `state_class` (`measurement` or `total_increasing`) – almost all inverter integrations provide this.
+- **Efficiency** = (discharged + increase of stored energy via SoC) ÷ charged. Without capacity/SoC: discharged ÷ charged.
+- **Cycles** = (charged + discharged) ÷ 2 ÷ capacity.
+- **Savings** = discharged energy × electricity price of the respective hour.
+- **Forecast** uses the average battery power of the last 30 minutes and the current SoC down to `min_soc`.
+
+## Support
+
+If you like the card, please ⭐ the repository – bug reports and ideas are welcome in the [issues](https://github.com/muhkuh666/battery-day-card/issues).
+
+## License
 
 MIT
