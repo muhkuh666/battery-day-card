@@ -1,0 +1,22 @@
+name: Release
+on:
+  push:
+    tags:
+      - "v*"
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version in der Karte prüfen
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          grep -q "CARD_VERSION = \"$TAG\"" battery-day-card.js || { echo "CARD_VERSION passt nicht zu Tag $GITHUB_REF_NAME"; exit 1; }
+      - name: Release erstellen
+        uses: softprops/action-gh-release@v2
+        with:
+          files: battery-day-card.js
+          generate_release_notes: true
+          body_path: .github/release-notes.md
