@@ -4,7 +4,7 @@
  * mit Spitzen, Heatmap, Wirkungsgrad, Zyklen, Ersparnis und Prognose.
  * https://github.com/muhkuh666/battery-day-card
  */
-const CARD_VERSION = "2.0.1";
+const CARD_VERSION = "2.0.2";
 
 const HOUR_MS = 3600 * 1000;
 const DAY_MS = 24 * HOUR_MS;
