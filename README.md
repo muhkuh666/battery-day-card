@@ -3,6 +3,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
 [![Validate](https://github.com/muhkuh666/battery-day-card/actions/workflows/validate.yml/badge.svg)](https://github.com/muhkuh666/battery-day-card/actions/workflows/validate.yml)
 [![GitHub release](https://img.shields.io/github/v/release/muhkuh666/battery-day-card)](https://github.com/muhkuh666/battery-day-card/releases)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/muhkuh666)
 
 🇩🇪 [Deutsche Anleitung](README.de.md)
 
@@ -151,6 +152,12 @@ batteries:
 
 If you like the card, please ⭐ the repository – bug reports and ideas are welcome in the [issues](https://github.com/muhkuh666/battery-day-card/issues).
 
+If the card saves you money, you can buy me a coffee ☕:
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/muhkuh666)
+
+☕ [Muhkuh666](https://buymeacoffee.com/muhkuh666)
+
 ## License
 
-MIT
+[MIT](https://raw.githubusercontent.com/muhkuh666/helios-compass-card/v1.12.0/LICENSE) © muhkuh666

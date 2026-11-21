@@ -1,6 +1,6 @@
 # Battery Day Card
 
-🇬🇧 [English README](README.md)
+🇬🇧 [English README](README.md) · [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/muhkuh666)
 
 Lovelace-Karte für Home Assistant, die zeigt, **wann und wie stark deine Hausbatterie geladen und entladen wurde** – pro Tag, Woche und Monat – mit Spitzen, Heatmaps, Wirkungsgrad, Zyklen, Ersparnis und „reicht bis“-Prognose.
 
@@ -90,6 +90,12 @@ Alle Optionen mit Standardwerten stehen in der [englischen README](README.md#opt
 
 Wenn dir die Karte gefällt, gib dem Repository einen ⭐ – Fehler und Ideen gerne in den [Issues](https://github.com/muhkuh666/battery-day-card/issues).
 
+Wenn dir die Karte Geld spart, kannst du mir gern einen Kaffee spendieren ☕:
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/muhkuh666)
+
+☕ [Muhkuh666](https://buymeacoffee.com/muhkuh666)
+
 ## Lizenz
 
-MIT
+[MIT](https://raw.githubusercontent.com/muhkuh666/helios-compass-card/v1.12.0/LICENSE) © muhkuh666
