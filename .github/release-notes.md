@@ -1,16 +1,19 @@
-## Battery Day Card 2.1 ⚡
+## Battery Day Card 2.2 🌞🔋🏠
 
 ### New / Neu
-- **Live status with animation** – the battery icon shows **charging** (flowing stripes, pulsing bolt) or **discharging** (energy flowing out), **standby** when idle · **Live-Status mit Animation**: Lädt gerade / Entlädt gerade / Bereitschaft
-- **Time until full / time until empty** incl. clock time ("empty in 3 h 56 min · ~15:57 · down to 10 %") · **Zeit bis voll / leer** inkl. Uhrzeit
-- Updates instantly with every sensor change – no waiting for the next refresh · aktualisiert sofort bei jeder Sensoränderung
-- Works with multiple batteries (total view, capacity-weighted SoC) · funktioniert auch mit mehreren Batterien
-- Respects "reduce motion"; animation can be switched off · Animation abschaltbar, respektiert „Bewegung reduzieren“
+- **Energy flow** – live mini graphic PV → battery → home ↔ grid with animated lines · **Energiefluss** mit animierten Linien
+- **Year view** – monthly bars, yearly totals, cycles, savings, best/top months · **Jahresansicht** mit Monatsbalken
+- **Battery share of consumption** – overall and evening/night (optional `load_entity`, otherwise derived from PV + grid) · **Batterie-Anteil am Verbrauch**, gesamt und abends
+- **SoH trend** – sparkline + ageing per year from long-term statistics · **SoH-Trend** mit Alterung pro Jahr
+- **Weekends & holidays** highlighted in week/month view (holiday calendar) · **Wochenende & Feiertage** markiert
+- **Save as image** – PNG export button · **Als Bild speichern**
+- **Notifications blueprint** – battery full, discharge limit, temperature, SoH, quiet hours · **Benachrichtigungs-Blueprint**
 
 ### Improved / Verbessert
-- Efficiency falls back to discharged ÷ charged if the SoC correction is implausible (no more > 100 %) · Wirkungsgrad ohne unplausible Werte über 100 %
+- Live values update without restarting animations · Live-Werte aktualisieren ohne Animations-Neustart
+- Click a month in the year view to open it · Klick auf Monat öffnet die Monatsansicht
 
-New options: `show_live`, `live_animation` (both in the visual editor).
+All new options are in the visual editor. · Alle neuen Optionen sind im Editor einstellbar.
 
 **Install:** HACS → Custom repositories → `https://github.com/muhkuh666/battery-day-card` (type **Dashboard**)
 

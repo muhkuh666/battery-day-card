@@ -4,7 +4,7 @@
  * mit Spitzen, Heatmap, Wirkungsgrad, Zyklen, Ersparnis und Prognose.
  * https://github.com/muhkuh666/battery-day-card
  */
-const CARD_VERSION = "2.1.0";
+const CARD_VERSION = "2.2.0";
 
 const HOUR_MS = 3600 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -28,6 +28,10 @@ const DEFAULTS = {
   grid_entity: "",
   grid_invert: false,
   price_entity: "",
+  load_entity: "",
+  evening_start: 18,
+  evening_end: 6,
+  holiday_calendar: "",
   price: 0,
   currency: "€",
   // Kopf
@@ -36,7 +40,8 @@ const DEFAULTS = {
   show_header: true,
   show_navigation: true,
   show_view_switch: true,
-  default_view: "day", // day | week | month
+  default_view: "day", // day | week | month | year
+  show_export: true,
   language: "auto", // auto | de | en
   // Diagramm
   chart_type: "area", // area | bars
@@ -60,6 +65,9 @@ const DEFAULTS = {
   show_insights: true,
   show_live: true,
   live_animation: true,
+  show_flow: true,
+  show_soh_trend: true,
+  highlight_weekends: true,
   show_heatmap: true,
   heatmap_style: "rows", // rows | net | clock
   show_top: true,
@@ -84,7 +92,12 @@ const BATTERY_KEYS = ["name", "mode", "charge_entity", "discharge_entity", "powe
 const STR = {
   de: {
     battery: "Batterie", total: "Gesamt", today: "Heute", yesterday: "Gestern",
-    day: "Tag", week: "Woche", month: "Monat", cw: "KW",
+    day: "Tag", week: "Woche", month: "Monat", year: "Jahr", cw: "KW",
+    best_charge_month: "Bester Lademonat", best_discharge_month: "Bester Entlademonat",
+    top_charge_months: "Stärkste Lademonate", top_discharge_months: "Stärkste Entlademonate",
+    coverage: "Batterie-Anteil am Verbrauch", evening: "abends", per_year: "pro Jahr", soh_trend: "Trend",
+    holiday: "Feiertag", weekend: "Wochenende", pv_short: "PV", grid_short: "Netz", home: "Haus", battery_short: "Batterie",
+    export: "Als Bild speichern", export_failed: "Export nicht möglich – SVG wird gespeichert.",
     charged: "Geladen", discharged: "Entladen", max_charge: "Max. Laden", max_discharge: "Max. Entladen",
     best_charge_day: "Bester Ladetag", best_discharge_day: "Bester Entladetag",
     at: "um", charge: "Laden", discharge: "Entladen", dis_short: "Entl.", now: "jetzt",
@@ -108,7 +121,12 @@ const STR = {
   },
   en: {
     battery: "Battery", total: "Total", today: "Today", yesterday: "Yesterday",
-    day: "Day", week: "Week", month: "Month", cw: "CW",
+    day: "Day", week: "Week", month: "Month", year: "Year", cw: "CW",
+    best_charge_month: "Best charge month", best_discharge_month: "Best discharge month",
+    top_charge_months: "Top charging months", top_discharge_months: "Top discharging months",
+    coverage: "Battery share of consumption", evening: "evening", per_year: "per year", soh_trend: "trend",
+    holiday: "Holiday", weekend: "Weekend", pv_short: "PV", grid_short: "Grid", home: "Home", battery_short: "Battery",
+    export: "Save as image", export_failed: "Export not possible – saving SVG instead.",
     charged: "Charged", discharged: "Discharged", max_charge: "Max charge", max_discharge: "Max discharge",
     best_charge_day: "Best charge day", best_discharge_day: "Best discharge day",
     at: "at", charge: "Charge", discharge: "Discharge", dis_short: "Disch.", now: "now",
@@ -384,7 +402,10 @@ class BatteryDayCard extends HTMLElement {
   _range() {
     const now = Date.now();
     let start, endFull;
-    if (this._view === "week") {
+    if (this._view === "year") {
+      start = new Date(new Date(now).getFullYear() - this._offset, 0, 1).getTime();
+      endFull = new Date(new Date(now).getFullYear() - this._offset + 1, 0, 1).getTime();
+    } else if (this._view === "week") {
       start = addDays(weekStart(now), -7 * this._offset);
       endFull = addDays(start, 7);
     } else if (this._view === "month") {
@@ -442,7 +463,10 @@ class BatteryDayCard extends HTMLElement {
     try {
       const r = this._range();
       const bats = this._selected();
-      const data = this._view === "day" ? await this._fetchDay(r, bats) : await this._fetchPeriod(r, bats);
+      const [data] = await Promise.all([
+        this._view === "day" ? this._fetchDay(r, bats) : this._fetchPeriod(r, bats),
+        this._loadSohTrend().catch(() => {}),
+      ]);
       if (token !== this._token) return;
       this._data = data;
       this._error = null;
@@ -614,8 +638,9 @@ class BatteryDayCard extends HTMLElement {
     const ids = [
       ...this._dataIds(bats),
       ...bats.flatMap((b) => [b.soc_entity, b.temp_entity]),
-      c.show_pv ? c.pv_entity : "",
-      c.show_grid_power ? c.grid_entity : "",
+      c.pv_entity,
+      c.grid_entity,
+      c.load_entity,
       c.price > 0 ? "" : c.price_entity,
     ];
     const [hist, compare] = await Promise.all([this._history(ids, r.start, r.end), this._fetchCompare(r, bats)]);
@@ -659,7 +684,18 @@ class BatteryDayCard extends HTMLElement {
       savings = sum(set.discharge.hourly.map((e, h) => e * ((ph && ph[h]) ?? fp)));
     }
     const forecast = r.isCurrent ? this._forecast(set, bats, capTotal) : null;
-    return { kind: "day", r, hist, ...set, status, compare, insights: { eff, cycles, savings, forecast } };
+    // Verbrauch je Stunde → Batterie-Anteil
+    let loadH = null;
+    if (c.load_entity) loadH = this._series(c.load_entity, this._points(hist[c.load_entity]), r.start, r.end, bucketMs, DAY_MS).hourly;
+    else if (c.pv_entity && c.grid_entity) {
+      const pvH = this._series(c.pv_entity, this._points(hist[c.pv_entity]), r.start, r.end, bucketMs, DAY_MS).hourly;
+      const gp = this._points(hist[c.grid_entity]), gs = c.grid_invert ? -1 : 1;
+      const gi = this._series(c.grid_entity, gp, r.start, r.end, bucketMs, DAY_MS, gs).hourly;
+      const go = this._series(c.grid_entity, gp, r.start, r.end, bucketMs, DAY_MS, -gs).hourly;
+      loadH = pvH.map((v, h) => Math.max(0, v + gi[h] - go[h] + set.discharge.hourly[h] - set.charge.hourly[h]));
+    }
+    const coverage = loadH ? this._coverage(set.discharge.hourly.map((e, h) => [h, e, loadH[h]])) : null;
+    return { kind: "day", r, hist, ...set, status, compare, insights: { eff, cycles, savings, forecast, coverage } };
   }
 
   /* ------------------------------------------------------------ Live-Status */
@@ -786,29 +822,185 @@ class BatteryDayCard extends HTMLElement {
 
   _liveHtml() {
     const c = this._config;
-    if (!c.show_live || !this._hass) return `<div id="live"></div>`;
+    if (!this._hass || (!c.show_live && !c.show_flow)) return `<div id="live"></div>`;
     const info = this._liveInfo();
-    if (!info) return `<div id="live"></div>`;
+    const flow = c.show_flow ? this._flowHtml(info ? info.p : null) : "";
+    const banner = c.show_live && info ? this._bannerHtml(info) : "";
+    return `<div id="live">${banner}${flow}</div>`;
+  }
+
+  /** Signatur für Strukturänderungen – bei gleicher Signatur werden nur Texte ersetzt (Animation läuft weiter) */
+  _liveSig(html) {
+    return html.replace(/<(b|span|small|div|text)([^>]*data-lv[^>]*)>[^<]*<\/\1>/g, "<$1$2></$1>");
+  }
+
+  _bannerHtml(info) {
     const { state, p, soc, time } = info;
     const title = state === "charging" ? this._t("charging_now") : state === "discharging" ? this._t("discharging_now") : this._t("standby");
     const pow = `${this._kw(Math.abs(p))} kW${soc !== null ? ` · ${this._num(soc, 0)} %` : ""}`;
     let right = "";
     if (time?.done) right = `<div class="ltime"><b>${time.done}</b></div>`;
-    else if (time) right = `<div class="ltime"><small>${time.label}</small><b>${time.dur}</b><small>${time.at ? this._t("approx", { t: time.at }) : ""}${time.note ? ` · ${time.note}` : ""}</small></div>`;
-    return `<div id="live" class="live ${state}">
-      <div class="batt">${this._batterySvg(state, soc)}</div>
-      <div class="ltxt"><div class="lstate">${title}</div><div class="lpow">${pow}</div></div>
+    else if (time)
+      right = `<div class="ltime"><small>${time.label}</small><b data-lv="dur">${time.dur}</b><small data-lv="at">${time.at ? this._t("approx", { t: time.at }) : ""}${time.note ? ` · ${time.note}` : ""}</small></div>`;
+    return `<div class="live ${state}">
+      <div class="batt">${this._batterySvg(state, soc === null ? null : Math.round(soc))}</div>
+      <div class="ltxt"><div class="lstate">${title}</div><div class="lpow" data-lv="pow">${pow}</div></div>
       ${right}
+    </div>`;
+  }
+
+  _kwState(id, sign = 1) {
+    const v = this._state(id);
+    if (v === null || this._isEnergy(id)) return null;
+    const u = this._unit(id);
+    return v * sign * (/^w$/i.test(u) ? 0.001 : /^mw$/i.test(u) ? 1000 : 1);
+  }
+
+  /** Energiefluss PV / Netz → Knoten → Haus / Batterie, animierte Linien */
+  _flowHtml(bat) {
+    const c = this._config;
+    if (!c.pv_entity && !c.grid_entity) return "";
+    const pv = c.pv_entity ? this._kwState(c.pv_entity) : null;
+    const grid = c.grid_entity ? this._kwState(c.grid_entity, c.grid_invert ? -1 : 1) : null;
+    let home = c.load_entity ? this._kwState(c.load_entity) : null;
+    if (home === null && pv !== null && grid !== null && bat !== null) home = Math.max(0, pv + grid - bat);
+    const th = 0.02;
+    const nodes = [
+      pv !== null && { k: "pv", side: "l", row: 0, icon: "mdi:solar-power-variant", label: this._t("pv_short"), v: Math.max(0, pv), dir: pv > th ? "in" : "", col: c.pv_color },
+      grid !== null && {
+        k: "grid", side: "l", row: 1, icon: "mdi:transmission-tower", label: this._t("grid_short"), v: Math.abs(grid),
+        dir: grid > th ? "in" : grid < -th ? "out" : "", col: c.grid_color, sub: grid < -th ? "↑" : grid > th ? "↓" : "",
+      },
+      home !== null && { k: "home", side: "r", row: 0, icon: "mdi:home-outline", label: this._t("home"), v: Math.max(0, home), dir: home > th ? "out" : "", col: "var(--primary-text-color)" },
+      bat !== null && {
+        k: "bat", side: "r", row: 1, icon: "mdi:home-battery-outline", label: this._t("battery_short"), v: Math.abs(bat),
+        dir: bat < -th ? "in" : bat > th ? "out" : "", col: bat < -th ? c.discharge_color : c.charge_color,
+      },
+    ].filter(Boolean);
+    if (nodes.length < 2) return "";
+    const W = 300, H = 84, hx = 150, hy = 42;
+    const anim = c.live_animation;
+    const lines = nodes
+      .map((n) => {
+        const x = n.side === "l" ? 70 : 230, y = n.row === 0 ? 18 : 66;
+        const d = `M${x},${y} C${(x + hx) / 2},${y} ${(x + hx) / 2},${hy} ${hx},${hy}`;
+        const dur = (Math.round(Math.max(0.5, 2.6 - Math.min(n.v, 8) * 0.27) * 2) / 2).toFixed(1); // grob gestuft → seltene Neuaufbauten
+        return `<path d="${d}" class="fl-base"/>${
+          n.dir ? `<path d="${d}" class="fl ${anim ? n.dir : ""}" style="stroke:${n.col};animation-duration:${dur}s"/>` : ""
+        }`;
+      })
+      .join("");
+    const node = (n) => `<div class="fn ${n.side} r${n.row}${n.dir ? "" : " off"}" style="--fc:${n.col}">
+        <ha-icon icon="${n.icon}"></ha-icon><div><small>${n.label}${n.sub ? ` ${n.sub}` : ""}</small><b data-lv="f-${n.k}">${this._kw(n.v)} kW</b></div></div>`;
+    return `<div class="flowbox">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="flowsvg">${lines}<circle cx="${hx}" cy="${hy}" r="4" class="hub"/></svg>
+      ${nodes.map(node).join("")}
     </div>`;
   }
 
   _updateLive() {
     const el = this.shadowRoot?.getElementById("live");
-    if (!el || !this._config?.show_live) return;
+    if (!el || !this._config || (!this._config.show_live && !this._config.show_flow)) return;
     const html = this._liveHtml();
     if (html === this._lastLive) return;
+    const sig = this._liveSig(html);
+    if (sig === this._lastSig && this._lastLive) {
+      // nur Werte ersetzen – Animationen laufen ungestört weiter
+      const tpl = document.createElement("template");
+      tpl.innerHTML = html;
+      tpl.content.querySelectorAll("[data-lv]").forEach((n) => {
+        const t = el.querySelector(`[data-lv="${n.dataset.lv}"]`);
+        if (t && t.textContent !== n.textContent) t.textContent = n.textContent;
+      });
+    } else {
+      el.outerHTML = html;
+    }
     this._lastLive = html;
-    el.outerHTML = html;
+    this._lastSig = sig;
+  }
+
+  /* ------------------------------------------------------------ Verbrauch, Feiertage, SoH-Trend */
+
+  /** rows: [[Stunde, Entladen kWh, Verbrauch kWh], …] → Anteil gesamt und abends */
+  _coverage(rows) {
+    const c = this._config;
+    const es = Number(c.evening_start), ee = Number(c.evening_end);
+    const inEve = (h) => (es > ee ? h >= es || h < ee : h >= es && h < ee);
+    let d = 0, l = 0, de = 0, le = 0;
+    for (const [h, e, ld] of rows) {
+      const cov = Math.min(e, ld); // Batterie kann nicht mehr decken als verbraucht wird
+      d += cov;
+      l += ld;
+      if (inEve(h)) { de += cov; le += ld; }
+    }
+    if (l < 0.2) return null;
+    return { total: Math.min(1, d / l), evening: le >= 0.1 ? Math.min(1, de / le) : null };
+  }
+
+  async _holidays(start, end) {
+    const map = new Map();
+    const id = this._config.holiday_calendar;
+    if (!id || !this._hass?.callApi) return map;
+    try {
+      const ev = await this._hass.callApi("GET", `calendars/${id}?start=${encodeURIComponent(new Date(start).toISOString())}&end=${encodeURIComponent(new Date(end).toISOString())}`);
+      for (const e of ev || []) {
+        const sd = e.start?.date || e.start?.dateTime || e.start;
+        const ed = e.end?.date || e.end?.dateTime || e.end;
+        if (!sd) continue;
+        const [y, m, dd] = String(sd).slice(0, 10).split("-").map(Number);
+        let t = new Date(y, m - 1, dd).getTime();
+        let last = t;
+        if (ed && e.end?.date) {
+          const [y2, m2, d2] = String(ed).slice(0, 10).split("-").map(Number);
+          last = addDays(new Date(y2, m2 - 1, d2).getTime(), -1);
+        }
+        for (; t <= last; t = addDays(t, 1)) map.set(t, e.summary || this._t("holiday"));
+      }
+    } catch (e) {
+      /* Kalender nicht erreichbar → ohne Feiertage */
+    }
+    return map;
+  }
+
+  async _loadSohTrend() {
+    if (!this._config.show_soh_trend) return;
+    const ids = [...new Set(this._batteries().map((b) => b.soh_entity).filter(Boolean))];
+    if (!ids.length) return;
+    this._soh = this._soh || {};
+    const todo = ids.filter((id) => !this._soh[id] || Date.now() - this._soh[id].at > 6 * HOUR_MS);
+    if (!todo.length) return;
+    const now = Date.now();
+    const st = await this._stats(todo, now - 400 * DAY_MS, now, "week");
+    for (const id of todo) {
+      const pts = (st[id] || []).filter((s) => Number.isFinite(s.mean)).map((s) => ({ t: statTime(s.start), v: s.mean }));
+      let slope = null;
+      if (pts.length >= 3 && pts[pts.length - 1].t - pts[0].t >= 30 * DAY_MS) {
+        const xs = pts.map((p) => (p.t - pts[0].t) / (365 * DAY_MS)), ys = pts.map((p) => p.v);
+        const mx = sum(xs) / xs.length, my = sum(ys) / ys.length;
+        const num = sum(xs.map((x, i) => (x - mx) * (ys[i] - my))), den = sum(xs.map((x) => (x - mx) ** 2));
+        slope = den ? num / den : null;
+      }
+      this._soh[id] = { at: Date.now(), pts, slope };
+    }
+  }
+
+  _sohTrendText(id) {
+    const t = this._soh?.[id];
+    if (!t || t.slope === null) return "";
+    const v = t.slope;
+    return `${this._t("soh_trend")} ${v >= 0 ? "+" : "−"}${this._num(Math.abs(v), 1)} % ${this._t("per_year")}`;
+  }
+
+  _sohSpark(id) {
+    const t = this._soh?.[id];
+    if (!t || t.pts.length < 2) return "";
+    const W = 56, H = 20, p = t.pts;
+    const vs = p.map((x) => x.v), mn = Math.min(...vs), mx = Math.max(...vs);
+    const span = Math.max(1, mx - mn);
+    const t0 = p[0].t, t1 = p[p.length - 1].t || t0 + 1;
+    const pts = p.map((x) => `${(((x.t - t0) / Math.max(1, t1 - t0)) * W).toFixed(1)},${(H - 2 - ((x.v - mn) / span) * (H - 4)).toFixed(1)}`).join(" ");
+    const col = t.slope !== null && t.slope < -2 ? this._config.discharge_color : this._config.charge_color;
+    return `<svg viewBox="0 0 ${W} ${H}" class="spark"><polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>`;
   }
 
   _forecast(set, bats, capTotal) {
@@ -904,11 +1096,16 @@ class BatteryDayCard extends HTMLElement {
   async _fetchPeriod(r, bats) {
     const c = this._config;
     const ids = this._dataIds(bats);
-    const st = await this._stats([...ids, c.price > 0 ? "" : c.price_entity], r.start, r.end, "hour");
+    const loadIds = c.load_entity ? [c.load_entity] : c.pv_entity && c.grid_entity ? [c.pv_entity, c.grid_entity] : [];
+    const [st, holidays] = await Promise.all([
+      this._stats([...ids, c.price > 0 ? "" : c.price_entity, ...loadIds], r.start, r.end, "hour"),
+      this._holidays(r.start, r.endFull),
+    ]);
     const nD = r.days.length;
     const mk = (v) => Array.from({ length: nD }, () => new Array(24).fill(v));
     const C = mk(0), D = mk(0), P = mk(null);
-    const pos = (t) => [r.days.indexOf(dayStartOf(t)), new Date(t).getHours()];
+    const dayIdx = new Map(r.days.map((d, i) => [d, i]));
+    const pos = (t) => [dayIdx.get(dayStartOf(t)) ?? -1, new Date(t).getHours()];
     this._eachStat(st, bats, HOUR_MS, (t, ce, de) => {
       const [d, h] = pos(t);
       if (d < 0) return;
@@ -920,6 +1117,25 @@ class BatteryDayCard extends HTMLElement {
         const [d, h] = pos(statTime(s.start));
         if (d >= 0 && Number.isFinite(s.mean)) P[d][h] = s.mean;
       }
+    }
+    // Verbrauch je Tag/Stunde (direkt oder aus PV + Netz + Batterie abgeleitet)
+    let Lm = null;
+    if (loadIds.length) {
+      const e = (id) => {
+        const m = mk(0);
+        for (const s of st[id] || []) {
+          const [d, h] = pos(statTime(s.start));
+          if (d < 0) continue;
+          m[d][h] += this._isEnergy(id) ? Math.max(0, s.change ?? 0) : s.mean ?? 0;
+        }
+        return m;
+      };
+      if (c.load_entity) Lm = e(c.load_entity).map((row) => row.map((v) => Math.max(0, v)));
+      else {
+        const pv = e(c.pv_entity), g = e(c.grid_entity), gs = c.grid_invert ? -1 : 1;
+        Lm = pv.map((row, d) => row.map((v, h) => Math.max(0, v + gs * g[d][h] + D[d][h] - C[d][h])));
+      }
+      if (!loadIds.some((id) => st[id]?.length)) Lm = null;
     }
     const hasData = ids.some((id) => st[id]?.length);
     const now = Date.now();
@@ -940,10 +1156,23 @@ class BatteryDayCard extends HTMLElement {
     W.forEach((w) => {
       if (w.n) for (let h = 0; h < 24; h++) { w.c[h] /= w.n; w.d[h] /= w.n; }
     });
-    const best = (arr) => {
-      let i = -1, v = 0;
-      arr.forEach((x, j) => { if (x > v) { v = x; i = j; } });
-      return i >= 0 ? { v, t: r.days[i] } : { v: 0, t: null };
+    // Einheiten fürs Diagramm: Tage (Woche/Monat) oder Monate (Jahr)
+    let units;
+    if (this._view === "year") {
+      units = Array.from({ length: 12 }, (_, m) => ({ t: new Date(new Date(r.start).getFullYear(), m, 1).getTime(), c: 0, d: 0, type: "month" }));
+      r.days.forEach((ds, i) => {
+        const u = units[new Date(ds).getMonth()];
+        u.c += dayC[i];
+        u.d += dayD[i];
+      });
+    } else {
+      units = r.days.map((ds, i) => ({ t: ds, c: dayC[i], d: dayD[i], type: "day", holiday: holidays.get(ds) || "", weekend: weekdayIdx(ds) >= 5 }));
+    }
+    units.forEach((u) => (u.future = u.t > now));
+    const best = (key) => {
+      let b = null;
+      units.forEach((u) => { if (u[key] > (b ? b.v : 0)) b = { v: u[key], t: u.t, type: u.type }; });
+      return b || { v: 0, t: null };
     };
     const caps = bats.map((b) => b.capacity_kwh);
     const capTotal = caps.every((x) => x > 0) ? sum(caps) : 0;
@@ -962,10 +1191,12 @@ class BatteryDayCard extends HTMLElement {
       W,
       totalC,
       totalD,
-      bestC: best(dayC),
-      bestD: best(dayD),
+      units,
+      bestC: best("c"),
+      bestD: best("d"),
       insights: {
-        eff: totalC > 0.3 ? totalD / totalC : null,
+        coverage: Lm ? this._coverage(D.flatMap((row, d) => row.map((e, h) => [h, e, Lm[d][h]]))) : null,
+        eff: totalC > 0.3 && totalD / totalC <= 1.02 ? totalD / totalC : null,
         cycles: capTotal ? (totalC + totalD) / 2 / capTotal : null,
         savings,
         perDay: elapsed ? { c: totalC / elapsed, d: totalD / elapsed } : null,
@@ -985,7 +1216,10 @@ class BatteryDayCard extends HTMLElement {
     else if (d.kind === "day") body = this._renderDay(d);
     else body = this._renderPeriod(d);
     this._geo = this._geo && d ? this._geo : null;
-    this.shadowRoot.innerHTML = `<style>${this._css()}</style><ha-card class="${c.layout === "compact" ? "compact" : ""}">${this._header()}${this._liveHtml()}${body}</ha-card>`;
+    const live = this._liveHtml();
+    this._lastLive = live;
+    this._lastSig = this._liveSig(live);
+    this.shadowRoot.innerHTML = `<style>${this._css()}</style><ha-card class="${c.layout === "compact" ? "compact" : ""}">${this._header()}${live}${body}</ha-card>`;
     this._bind();
   }
 
@@ -996,6 +1230,7 @@ class BatteryDayCard extends HTMLElement {
       return `${this._t("cw")} ${isoWeek(r.start)} · ${f(r.start)}–${f(addDays(r.start, 6))}`;
     }
     if (this._view === "month") return new Date(r.start).toLocaleDateString(this._locale(), { month: "long", year: "numeric" });
+    if (this._view === "year") return String(new Date(r.start).getFullYear());
     if (this._offset === 0) return this._t("today");
     if (this._offset === 1) return this._t("yesterday");
     return this._dateShort(r.start);
@@ -1010,16 +1245,17 @@ class BatteryDayCard extends HTMLElement {
       ? `<button class="nb" data-act="prev">‹</button><span class="date">${esc(this._periodLabel())}</span><button class="nb" data-act="next" ${this._offset === 0 ? "disabled" : ""}>›</button>`
       : `<span class="date">${esc(this._periodLabel())}</span>`;
     const views = c.show_view_switch
-      ? `<div class="seg">${["day", "week", "month"].map((v) => `<button data-view="${v}" class="${this._view === v ? "on" : ""}">${this._t(v)}</button>`).join("")}</div>`
+      ? `<div class="seg">${["day", "week", "month", "year"].map((v) => `<button data-view="${v}" class="${this._view === v ? "on" : ""}">${this._t(v)}</button>`).join("")}</div>`
       : "";
     const tabs =
       bats.length > 1
         ? `<div class="seg">${bats.map((b, i) => `<button data-bat="${i}" class="${this._sel === i ? "on" : ""}">${esc(b.name)}</button>`).join("")}<button data-bat="-1" class="${this._sel === -1 ? "on" : ""}">${this._t("total")}</button></div>`
         : "";
+    const exp = c.show_export ? `<button class="nb exp" data-act="export" title="${this._t("export")}"><ha-icon icon="mdi:image-move"></ha-icon></button>` : "";
     return `
       <div class="head">
         <div class="title">${c.icon ? `<ha-icon icon="${esc(c.icon)}"></ha-icon>` : ""}<span>${esc(title)}</span></div>
-        <div class="nav">${nav}</div>
+        <div class="nav">${exp}${nav}</div>
       </div>
       ${views || tabs ? `<div class="bar">${views}${tabs}</div>` : ""}`;
   }
@@ -1067,13 +1303,15 @@ class BatteryDayCard extends HTMLElement {
     const bats = this._selected();
     if (!d.hasData) return `<div class="msg">${this._t("no_stats")}</div>`;
     const parts = [];
-    const f = (b) => (b.t ? this._dateShort(b.t) : "");
+    const yr = this._view === "year";
+    const f = (b) => (b.t ? this._unitLabel(b) : "");
+    const bc = (b) => (b.t && !yr ? b.t : null);
     if (c.show_stats) {
       parts.push(`<div class="stats">
         ${this._stat(this._t("charged"), this._kwh(d.totalC), "kWh", c.charge_color, "▲")}
         ${this._stat(this._t("discharged"), this._kwh(d.totalD), "kWh", c.discharge_color, "▼")}
-        ${this._stat(this._t("best_charge_day"), d.bestC.t ? this._kwh(d.bestC.v) : "–", "kWh", c.charge_color, "", f(d.bestC), "", d.bestC.t)}
-        ${this._stat(this._t("best_discharge_day"), d.bestD.t ? this._kwh(d.bestD.v) : "–", "kWh", c.discharge_color, "", f(d.bestD), "", d.bestD.t)}
+        ${this._stat(this._t(yr ? "best_charge_month" : "best_charge_day"), d.bestC.t ? this._kwh(d.bestC.v) : "–", "kWh", c.charge_color, "", f(d.bestC), "", bc(d.bestC))}
+        ${this._stat(this._t(yr ? "best_discharge_month" : "best_discharge_day"), d.bestD.t ? this._kwh(d.bestD.v) : "–", "kWh", c.discharge_color, "", f(d.bestD), "", bc(d.bestD))}
       </div>`);
     }
     if (c.layout === "compact") {
@@ -1086,8 +1324,8 @@ class BatteryDayCard extends HTMLElement {
     if (c.show_heatmap) parts.push(this._heatWeek(d));
     if (c.show_top) {
       parts.push(`<div class="tops">
-        ${this._topDays(this._t("top_charge_days"), d.dayC, d.r.days, c.charge_color)}
-        ${this._topDays(this._t("top_discharge_days"), d.dayD, d.r.days, c.discharge_color)}
+        ${this._topUnits(this._t(yr ? "top_charge_months" : "top_charge_days"), d.units, "c", c.charge_color)}
+        ${this._topUnits(this._t(yr ? "top_discharge_months" : "top_discharge_days"), d.units, "d", c.discharge_color)}
       </div>`);
     }
     return parts.join("");
@@ -1129,7 +1367,7 @@ class BatteryDayCard extends HTMLElement {
         const v = this._state(b.soh_entity);
         if (v !== null)
           items.push(`<div class="chipi click" data-entity="${esc(b.soh_entity)}" title="${this._t("soh")}"><ha-icon icon="mdi:battery-heart-variant"></ha-icon>
-            <div><b>${this._num(v, 0)} %</b><small>${this._t("soh")}</small></div></div>`);
+            <div><b>${this._num(v, 0)} %</b><small>${this._sohTrendText(b.soh_entity) || this._t("soh")}</small></div>${this._sohSpark(b.soh_entity)}</div>`);
       }
       if (b.temp_entity) {
         const v = this._state(b.temp_entity);
@@ -1157,6 +1395,11 @@ class BatteryDayCard extends HTMLElement {
       if (ins.eff != null) items.push(chip("mdi:swap-vertical-circle-outline", this._t("efficiency"), `${this._num(Math.min(ins.eff, 1.5) * 100, 0)} %`));
       if (ins.cycles != null) items.push(chip("mdi:sync", this._t("cycles"), this._num(ins.cycles, 2)));
       if (ins.savings != null) items.push(chip("mdi:piggy-bank-outline", this._t("savings"), this._money(ins.savings), "money"));
+      if (ins.coverage) {
+        const cv = ins.coverage;
+        const val = `${this._num(cv.total * 100, 0)} %${cv.evening !== null ? ` · ${this._t("evening")} ${this._num(cv.evening * 100, 0)} %` : ""}`;
+        items.push(chip("mdi:home-lightning-bolt-outline", this._t("coverage"), val, "cov"));
+      }
       if (ins.perDay) items.push(chip("mdi:calendar-today", this._t("per_day"), `▲ ${this._kwh(ins.perDay.c)} · ▼ ${this._kwh(ins.perDay.d)} kWh`));
     }
     return items.length ? `<div class="insights">${items.join("")}</div>` : "";
@@ -1305,11 +1548,12 @@ class BatteryDayCard extends HTMLElement {
     const c = this._config;
     const W = 640, H = height + 10, L = 38, R = 12, T = 16, B = 22;
     const iw = W - L - R, ih = H - T - B, mid = T + ih / 2;
-    const n = d.r.days.length;
+    const U = d.units;
+    const n = U.length;
     const now = Date.now();
     this._geo = { W, L, iw, n, kind: "period", d };
-    const maxV = Math.max(0.5, ...d.dayC, ...d.dayD) * 1.12;
-    const step = maxV > 40 ? 20 : maxV > 20 ? 10 : maxV > 10 ? 5 : maxV > 4 ? 2 : 1;
+    const maxV = Math.max(0.5, ...U.map((u) => u.c), ...U.map((u) => u.d)) * 1.12;
+    const step = maxV > 400 ? 200 : maxV > 200 ? 100 : maxV > 100 ? 50 : maxV > 40 ? 20 : maxV > 20 ? 10 : maxV > 10 ? 5 : maxV > 4 ? 2 : 1;
     const top = Math.ceil(maxV / step) * step;
     const y = (v, sg) => mid - sg * (v / top) * (ih / 2);
     const bw = (iw / n) * (n > 10 ? 0.7 : 0.55);
@@ -1322,18 +1566,27 @@ class BatteryDayCard extends HTMLElement {
     }
     g += `<line x1="${L}" x2="${W - R}" y1="${mid}" y2="${mid}" class="zero"/><text x="${L - 6}" y="${mid + 3}" class="ax" text-anchor="end">0</text>`;
     g += `<text x="${L - 6}" y="${T - 7}" class="ax unit" text-anchor="end">kWh</text>`;
-    let bars = "";
-    d.r.days.forEach((ds, i) => {
+    let bars = "", shade = "";
+    const cw = iw / n;
+    U.forEach((u, i) => {
       const cx = L + ((i + 0.5) / n) * iw;
-      const isToday = ds === dayStartOf(now);
-      const label = this._view === "week" ? this._t("weekdays")[i] : [0, 4, 9, 14, 19, 24, 29].includes(i) ? String(i + 1) : "";
-      if (label) g += `<text x="${cx}" y="${H - 6}" class="ax${isToday ? " nowt" : ""}" text-anchor="middle">${label}</text>`;
-      if (ds > now) return;
-      const hc = Math.abs(y(d.dayC[i], 1) - mid), hd = Math.abs(y(d.dayD[i], -1) - mid);
-      if (hc > 0.3) bars += `<rect x="${cx - bw / 2}" y="${mid - hc}" width="${bw}" height="${hc}" rx="3" fill="${c.charge_color}" fill-opacity="${d.bestC.t === ds ? 1 : 0.65}"/>`;
-      if (hd > 0.3) bars += `<rect x="${cx - bw / 2}" y="${mid}" width="${bw}" height="${hd}" rx="3" fill="${c.discharge_color}" fill-opacity="${d.bestD.t === ds ? 1 : 0.65}"/>`;
-      if (isToday && c.show_now_line) bars += `<rect x="${cx - bw / 2 - 2}" y="${T}" width="${bw + 4}" height="${ih}" rx="4" class="todaybox"/>`;
+      const isNow = u.type === "month" ? new Date(u.t).getMonth() === new Date(now).getMonth() && new Date(u.t).getFullYear() === new Date(now).getFullYear() : u.t === dayStartOf(now);
+      let label = "";
+      if (u.type === "month") label = new Date(u.t).toLocaleDateString(this._locale(), { month: "short" }).replace(".", "");
+      else if (this._view === "week") label = this._t("weekdays")[i];
+      else if ([0, 4, 9, 14, 19, 24, 29].includes(i)) label = String(i + 1);
+      if (c.highlight_weekends && u.type === "day" && (u.weekend || u.holiday)) {
+        shade += `<rect x="${L + i * cw}" y="${T}" width="${cw}" height="${ih}" class="${u.holiday ? "hol" : "we"}"/>`;
+        if (u.holiday) shade += `<circle cx="${cx}" cy="${T + 3}" r="2.5" class="holdot"/>`;
+      }
+      if (label) g += `<text x="${cx}" y="${H - 6}" class="ax${isNow ? " nowt" : u.holiday ? " holt" : ""}" text-anchor="middle">${esc(label)}</text>`;
+      if (u.future) return;
+      const hc = Math.abs(y(u.c, 1) - mid), hd = Math.abs(y(u.d, -1) - mid);
+      if (hc > 0.3) bars += `<rect x="${cx - bw / 2}" y="${mid - hc}" width="${bw}" height="${hc}" rx="3" fill="${c.charge_color}" fill-opacity="${d.bestC.t === u.t ? 1 : 0.65}"/>`;
+      if (hd > 0.3) bars += `<rect x="${cx - bw / 2}" y="${mid}" width="${bw}" height="${hd}" rx="3" fill="${c.discharge_color}" fill-opacity="${d.bestD.t === u.t ? 1 : 0.65}"/>`;
+      if (isNow && c.show_now_line) bars += `<rect x="${cx - bw / 2 - 2}" y="${T}" width="${bw + 4}" height="${ih}" rx="4" class="todaybox"/>`;
     });
+    g = shade + g;
     return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" id="svg" style="height:${height}px" class="clickable">
       ${g}
       <text x="${L + 6}" y="${T + 10}" class="side" style="fill:${c.charge_color}">▲ ${this._t("charge")}</text>
@@ -1438,7 +1691,7 @@ class BatteryDayCard extends HTMLElement {
           return `<div class="cell" style="background:${alpha(col, a)}" title="${this._t("weekdays")[i]} ${this._hourRange(h)} · ${this._view === "month" ? this._t("avg_short") + " " : ""}▲ ${this._kwh(v)} · ▼ ${this._kwh(w.d[h])} kWh"></div>`;
         })
         .join("");
-      return `<div class="hrow"><span class="hl wd">${this._t("weekdays")[i]}</span><div class="cells">${cells}</div></div>`;
+      return `<div class="hrow"><span class="hl wd${c.highlight_weekends && i >= 5 ? " we" : ""}">${this._t("weekdays")[i]}</span><div class="cells">${cells}</div></div>`;
     }).join("");
     return `<div class="heat week">
       <div class="netlegend"><span class="muted">${this._t("pattern")}</span><span style="color:${c.charge_color}">■ ${this._t("more_charged")}</span><span style="color:${c.discharge_color}">■ ${this._t("more_discharged")}</span></div>
@@ -1454,19 +1707,27 @@ class BatteryDayCard extends HTMLElement {
     return this._topList(label, top.map((x) => ({ label: this._hourRange(x.h), e: x.e })), color);
   }
 
-  _topDays(label, arr, days, color) {
-    const top = arr
-      .map((e, i) => ({ e, i }))
-      .filter((x) => x.e > 0.005)
-      .sort((a, b) => b.e - a.e)
+  _unitLabel(u) {
+    if (u.type === "month") return new Date(u.t).toLocaleDateString(this._locale(), { month: "long" });
+    return this._dateShort(u.t);
+  }
+
+  _topUnits(label, units, key, color) {
+    const top = units
+      .filter((u) => u[key] > 0.005)
+      .sort((a, b) => b[key] - a[key])
       .slice(0, this._config.top_count);
-    return this._topList(label, top.map((x) => ({ label: this._dateShort(days[x.i]), e: x.e, day: days[x.i] })), color);
+    return this._topList(
+      label,
+      top.map((u) => ({ label: this._unitLabel(u) + (u.holiday ? " 🎉" : ""), e: u[key], day: u.type === "day" ? u.t : null, month: u.type === "month" ? u.t : null })),
+      color
+    );
   }
 
   _topList(label, items, color) {
     const chips = items.length
       ? items
-          .map((x, i) => `<span class="chip${x.day ? " click" : ""}" style="--c:${color}" ${x.day ? `data-day="${x.day}"` : ""}><b>${i + 1}</b>${x.label}<em>${this._kwh(x.e)} kWh</em></span>`)
+          .map((x, i) => `<span class="chip${x.day || x.month ? " click" : ""}" style="--c:${color}" ${x.day ? `data-day="${x.day}"` : x.month ? `data-month="${x.month}"` : ""}><b>${i + 1}</b>${x.label}<em>${this._kwh(x.e)} kWh</em></span>`)
           .join("")
       : `<span class="none">${this._t("no_activity")}</span>`;
     return `<div class="top"><div class="tl">${label}</div><div class="chips">${chips}</div></div>`;
@@ -1482,6 +1743,7 @@ class BatteryDayCard extends HTMLElement {
         const a = b.dataset.act;
         if (a === "prev") this._shift(1);
         else if (a === "next") this._shift(-1);
+        else if (a === "export") this._exportPng();
         else if (a === "unzoom") {
           this._zoom = null;
           this._render();
@@ -1508,12 +1770,70 @@ class BatteryDayCard extends HTMLElement {
       })
     );
     root.querySelectorAll("[data-day]").forEach((el) => el.addEventListener("click", () => this._openDay(Number(el.dataset.day))));
+    root.querySelectorAll("[data-month]").forEach((el) => el.addEventListener("click", () => this._openMonth(Number(el.dataset.month))));
     this._bindChart();
   }
 
   _openDay(ds) {
     this._view = "day";
     this._offset = Math.max(0, Math.round((dayStartOf(Date.now()) - ds) / DAY_MS));
+    this._reload();
+  }
+
+  async _exportPng() {
+    const card = this.shadowRoot.querySelector("ha-card");
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    const w = Math.ceil(rect.width), h = Math.ceil(rect.height);
+    const host = getComputedStyle(this), cs = getComputedStyle(card);
+    const vars = ["--primary-text-color", "--secondary-text-color", "--card-background-color", "--ha-card-background", "--divider-color", "--secondary-background-color", "--primary-color"]
+      .map((v) => [v, host.getPropertyValue(v).trim()])
+      .filter(([, v]) => v)
+      .map(([k, v]) => `${k}:${v}`)
+      .join(";");
+    let bg = cs.backgroundColor;
+    if (!bg || bg === "rgba(0, 0, 0, 0)" || bg === "transparent") bg = host.getPropertyValue("--card-background-color").trim() || "#ffffff";
+    const clone = card.cloneNode(true);
+    clone.querySelectorAll("ha-icon, .tip, #cursor, .zoomx, .exp, .pulse").forEach((e) => e.remove());
+    const css = this._css().replace(/:host/g, ".bdc-x").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const extra = `ha-card{display:block;background:${bg};border-radius:12px;color:${cs.color}} *{animation:none!important;transition:none!important}`;
+    const body = new XMLSerializer().serializeToString(clone);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject x="0" y="0" width="${w}" height="${h}">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="bdc-x" style="${vars};width:${w}px;font-family:${cs.fontFamily.replace(/"/g, "'")};font-size:${cs.fontSize};color:${cs.color}">
+      <style>${css} ${extra}</style>${body}</div></foreignObject></svg>`;
+    const sd = new Date(this._range().start);
+    const name = `battery-${this._view}-${sd.getFullYear()}-${pad(sd.getMonth() + 1)}-${pad(sd.getDate())}`;
+    const download = (blob, ext) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${name}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    };
+    try {
+      const img = new Image();
+      img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+      await img.decode();
+      const scale = Math.max(2, window.devicePixelRatio || 1);
+      const canvas = document.createElement("canvas");
+      canvas.width = w * scale;
+      canvas.height = h * scale;
+      const ctx = canvas.getContext("2d");
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0);
+      const blob = await new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error("toBlob"))), "image/png"));
+      download(blob, "png");
+    } catch (e) {
+      console.warn("battery-day-card:", this._t("export_failed"), e);
+      download(new Blob([svg], { type: "image/svg+xml" }), "svg");
+    }
+  }
+
+  _openMonth(ms) {
+    const now = new Date(), m = new Date(ms);
+    this._view = "month";
+    this._offset = Math.max(0, (now.getFullYear() - m.getFullYear()) * 12 + now.getMonth() - m.getMonth());
     this._reload();
   }
 
@@ -1575,12 +1895,11 @@ class BatteryDayCard extends HTMLElement {
           if (sv !== null) html += `<div>${dot(c.soc_color)}SoC <b>${Math.round(sv)} %</b></div>`;
         }
       } else {
-        const d = geo.d;
-        const ds = d.r.days[i];
-        if (ds > Date.now()) return leave();
-        html = `<div class="tt">${this._dateShort(ds)}</div>
-          <div>${dot(c.charge_color)}${this._t("charged")} <b>${this._kwh(d.dayC[i])} kWh</b></div>
-          <div>${dot(c.discharge_color)}${this._t("discharged")} <b>${this._kwh(d.dayD[i])} kWh</b></div>`;
+        const u = geo.d.units[i];
+        if (u.future) return leave();
+        html = `<div class="tt">${this._unitLabel(u)}${u.holiday ? ` · ${esc(u.holiday)}` : ""}</div>
+          <div>${dot(c.charge_color)}${this._t("charged")} <b>${this._kwh(u.c)} kWh</b></div>
+          <div>${dot(c.discharge_color)}${this._t("discharged")} <b>${this._kwh(u.d)} kWh</b></div>`;
       }
       const cx = geo.L + ((i + 0.5) / geo.n) * geo.iw;
       cur.setAttribute("x1", cx);
@@ -1598,8 +1917,8 @@ class BatteryDayCard extends HTMLElement {
     hit.addEventListener("click", (ev) => {
       if (geo.kind === "period") {
         const { i } = idxAt(ev);
-        const ds = geo.d.r.days[i];
-        if (ds <= Date.now()) this._openDay(ds);
+        const u = geo.d.units[i];
+        if (!u.future) u.type === "month" ? this._openMonth(u.t) : this._openDay(u.t);
         return;
       }
       if (geo.zoomed || !c.zoom_on_click || !this._data) return;
@@ -1702,6 +2021,30 @@ class BatteryDayCard extends HTMLElement {
       .ltime b { display:block; font-size:1.15rem; font-weight:700; color:var(--primary-text-color); font-variant-numeric:tabular-nums; white-space:nowrap; }
       .compact .live { padding:8px 10px; } .compact .batt, .compact .battsvg { width:60px; } .compact .battsvg { height:25px; }
       @media (prefers-reduced-motion: reduce) { .battsvg.glow, .stripes, .pulse2, .flow circle, .flowin circle, .pulse { animation:none !important; } .flow circle, .flowin circle { opacity:.8; } }
+      .flowbox { position:relative; height:84px; margin:-2px 0 10px; }
+      .flowsvg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+      .fl-base { fill:none; stroke:var(--divider-color, rgba(127,127,127,.25)); stroke-width:2; vector-effect:non-scaling-stroke; }
+      .fl { fill:none; stroke-width:2.5; stroke-dasharray:3 9; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+      .fl.in { animation:dashIn 1.4s linear infinite; } .fl.out { animation:dashOut 1.4s linear infinite; }
+      @keyframes dashIn { to { stroke-dashoffset:-24; } } @keyframes dashOut { to { stroke-dashoffset:24; } }
+      .hub { fill:var(--secondary-text-color); opacity:.6; }
+      .fn { position:absolute; display:flex; align-items:center; gap:6px; padding:4px 8px; border-radius:10px;
+        background:var(--card-background-color, #fff); border:1px solid color-mix(in srgb, var(--fc) 45%, transparent); font-size:.75rem; transform:translateY(-50%); }
+      .fn.l { left:0; } .fn.r { right:0; flex-direction:row-reverse; text-align:right; }
+      .fn.r0 { top:21%; } .fn.r1 { top:79%; }
+      .fn.off { opacity:.55; }
+      .fn ha-icon { --mdc-icon-size:18px; color:var(--fc); }
+      .fn small { display:block; font-size:.66rem; color:var(--secondary-text-color); line-height:1.1; }
+      .fn b { display:block; font-variant-numeric:tabular-nums; color:var(--primary-text-color); line-height:1.2; white-space:nowrap; }
+      .spark { width:56px; height:20px; flex:none; margin-left:2px; }
+      .ins.cov ha-icon { color:var(--bdc-charge); }
+      .we { fill:color-mix(in srgb, var(--secondary-text-color) 9%, transparent); }
+      .hol { fill:color-mix(in srgb, var(--bdc-now) 14%, transparent); }
+      .holdot { fill:var(--bdc-now); } .holt { fill:var(--bdc-now); font-weight:700; }
+      .hl.wd.we { color:var(--bdc-now); }
+      .nb.exp { display:inline-flex; align-items:center; justify-content:center; margin-right:4px; }
+      .nb.exp ha-icon { --mdc-icon-size:17px; }
+      @media (prefers-reduced-motion: reduce) { .fl { animation:none !important; } }
       .socbar { width:64px; height:5px; border-radius:3px; background:color-mix(in srgb, var(--secondary-text-color) 20%, transparent); margin:3px 0 2px; overflow:hidden; }
       .socbar i { display:block; height:100%; border-radius:3px; }
       .chart { position:relative; }
@@ -1787,6 +2130,8 @@ const ED = {
       compare: "Vergleichslinie", show_pv: "PV-Linie", show_grid_power: "Netz-Linie", show_peaks: "Spitzen markieren", animate_peaks: "Spitzen animieren",
       show_now_line: "„jetzt“-Linie", show_grid: "Gitterlinien", show_soc: "SoC-Linie", zoom_on_click: "Zoom per Klick",
       layout: "Layout", show_stats: "Kennzahlen", show_status: "Batterie-Status", show_insights: "Auswertung", show_live: "Live-Status (lädt / entlädt)", live_animation: "Animation",
+      show_flow: "Energiefluss (PV / Netz / Haus / Batterie)", show_soh_trend: "SoH-Trend", highlight_weekends: "Wochenende & Feiertage markieren",
+      show_export: "Bild-Export-Button", load_entity: "Hausverbrauch (Leistung)", evening_start: "Abend ab", evening_end: "Abend bis", holiday_calendar: "Feiertags-Kalender",
       show_heatmap: "Heatmap", heatmap_style: "Heatmap-Stil", show_top: "Top-Stunden/-Tage", top_count: "Anzahl Top-Einträge",
       theme: "Farbschema", charge_color: "Laden", discharge_color: "Entladen", soc_color: "SoC", now_color: "„jetzt“-Linie", pv_color: "PV", grid_color: "Netz",
       refresh_minutes: "Aktualisierung",
@@ -1804,12 +2149,16 @@ const ED = {
       show_status: "SoC, Gesundheit (SoH) und Temperatur.",
       show_insights: "Wirkungsgrad, Zyklen, Ersparnis.",
       show_live: "Mit Restzeit bis voll / leer – braucht SoC-Sensor und Kapazität.",
+      load_entity: "Optional – ohne Sensor wird der Verbrauch aus PV + Netz + Batterie berechnet.",
+      evening_start: "Zeitfenster für den Batterie-Anteil „abends“ (z. B. 18 bis 6 Uhr).",
+      holiday_calendar: "z. B. Kalender der Integration „Feiertage“ (Holiday).",
+      show_flow: "Braucht PV- und/oder Netz-Sensor.",
     },
     sections: { sensors: "Batterie", battery2: "Zweite Batterie (optional)", extra: "PV, Netz & Preis", header: "Kopfzeile & Ansicht", chart: "Diagramm", sections: "Bereiche", colors: "Farben", advanced: "Erweitert" },
     opts: {
       separate: "Zwei Sensoren (Laden + Entladen)", combined: "Ein Sensor mit Vorzeichen (+/−)",
       auto: "Automatisch", power: "Leistung (W / kW)", energy: "Energiezähler (Wh / kWh)",
-      day: "Tag", week: "Woche", month: "Monat", de: "Deutsch", en: "English",
+      day: "Tag", week: "Woche", month: "Monat", year: "Jahr", de: "Deutsch", en: "English",
       area: "Fläche", bars: "Balken", none: "Keine", yesterday: "Gestern", avg7: "Ø der letzten 7 Tage",
       full: "Vollständig", compact: "Kompakt", rows: "Zwei Kachelreihen", net: "Netto-Band", clock: "Tagesuhr (24-h-Ring)",
       dark: "Dunkel", light: "Hell", theme_auto: "Automatisch (HA-Theme)", lang_auto: "Automatisch (HA-Sprache)",
@@ -1828,6 +2177,8 @@ const ED = {
       compare: "Comparison line", show_pv: "PV line", show_grid_power: "Grid line", show_peaks: "Mark peaks", animate_peaks: "Animate peaks",
       show_now_line: "\"now\" line", show_grid: "Grid lines", show_soc: "SoC line", zoom_on_click: "Click to zoom",
       layout: "Layout", show_stats: "Key figures", show_status: "Battery status", show_insights: "Insights", show_live: "Live status (charging / discharging)", live_animation: "Animation",
+      show_flow: "Energy flow (PV / grid / home / battery)", show_soh_trend: "SoH trend", highlight_weekends: "Highlight weekends & holidays",
+      show_export: "Image export button", load_entity: "Home consumption (power)", evening_start: "Evening from", evening_end: "Evening until", holiday_calendar: "Holiday calendar",
       show_heatmap: "Heatmap", heatmap_style: "Heatmap style", show_top: "Top hours/days", top_count: "Number of top entries",
       theme: "Color scheme", charge_color: "Charge", discharge_color: "Discharge", soc_color: "SoC", now_color: "\"now\" line", pv_color: "PV", grid_color: "Grid",
       refresh_minutes: "Refresh interval",
@@ -1845,12 +2196,16 @@ const ED = {
       show_status: "SoC, state of health (SoH) and temperature.",
       show_insights: "Efficiency, cycles, savings.",
       show_live: "Incl. time until full / empty – needs SoC sensor and capacity.",
+      load_entity: "Optional – without it, consumption is derived from PV + grid + battery.",
+      evening_start: "Time window for the \"evening\" battery share (e.g. 18 to 6).",
+      holiday_calendar: "e.g. a calendar of the Holiday integration.",
+      show_flow: "Needs a PV and/or grid sensor.",
     },
     sections: { sensors: "Battery", battery2: "Second battery (optional)", extra: "PV, grid & price", header: "Header & view", chart: "Chart", sections: "Sections", colors: "Colors", advanced: "Advanced" },
     opts: {
       separate: "Two sensors (charge + discharge)", combined: "One signed sensor (+/−)",
       auto: "Automatic", power: "Power (W / kW)", energy: "Energy meter (Wh / kWh)",
-      day: "Day", week: "Week", month: "Month", de: "Deutsch", en: "English",
+      day: "Day", week: "Week", month: "Month", year: "Year", de: "Deutsch", en: "English",
       area: "Area", bars: "Bars", none: "None", yesterday: "Yesterday", avg7: "Ø last 7 days",
       full: "Full", compact: "Compact", rows: "Two tile rows", net: "Net band", clock: "Day clock (24 h ring)",
       dark: "Dark", light: "Light", theme_auto: "Automatic (HA theme)", lang_auto: "Automatic (HA language)",
@@ -1910,6 +2265,12 @@ class BatteryDayCardEditor extends HTMLElement {
         { name: "pv_entity", selector: ent },
         { name: "grid_entity", selector: ent },
         { name: "grid_invert", selector: bool },
+        { name: "load_entity", selector: ent },
+        grid([
+          { name: "evening_start", selector: { number: { min: 0, max: 23, step: 1, mode: "box", unit_of_measurement: "h" } } },
+          { name: "evening_end", selector: { number: { min: 0, max: 23, step: 1, mode: "box", unit_of_measurement: "h" } } },
+        ]),
+        { name: "holiday_calendar", selector: { entity: { domain: "calendar" } } },
         { name: "price_entity", selector: ent },
         grid([
           { name: "price", selector: { number: { min: 0, max: 5, step: 0.001, mode: "box" } } },
@@ -1920,13 +2281,14 @@ class BatteryDayCardEditor extends HTMLElement {
         { name: "title", selector: { text: {} } },
         { name: "icon", selector: { icon: {} } },
         grid([
-          { name: "default_view", selector: sel([["day", o.day], ["week", o.week], ["month", o.month]]) },
+          { name: "default_view", selector: sel([["day", o.day], ["week", o.week], ["month", o.month], ["year", o.year]]) },
           { name: "language", selector: sel([["auto", o.lang_auto], ["de", o.de], ["en", o.en]]) },
         ]),
         grid([
           { name: "show_header", selector: bool },
           { name: "show_navigation", selector: bool },
           { name: "show_view_switch", selector: bool },
+          { name: "show_export", selector: bool },
         ]),
       ]),
       sec("chart", "mdi:chart-areaspline", [
@@ -1957,6 +2319,9 @@ class BatteryDayCardEditor extends HTMLElement {
           { name: "show_insights", selector: bool },
           { name: "show_live", selector: bool },
           { name: "live_animation", selector: bool },
+          { name: "show_flow", selector: bool },
+          { name: "show_soh_trend", selector: bool },
+          { name: "highlight_weekends", selector: bool },
           { name: "show_heatmap", selector: bool },
           { name: "show_top", selector: bool },
         ]),

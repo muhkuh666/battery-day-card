@@ -1,0 +1,136 @@
+blueprint:
+  name: Battery notifications (Battery Day Card)
+  description: >-
+    Push notifications for your home battery: battery full, discharge limit reached,
+    temperature too high – and optionally state of health (SoH) dropping below a limit.
+    Benachrichtigungen für die Hausbatterie: Batterie voll, Entladegrenze erreicht,
+    Temperatur zu hoch und optional Gesundheit (SoH) unter Grenzwert.
+    Part of https://github.com/muhkuh666/battery-day-card
+  domain: automation
+  source_url: https://github.com/muhkuh666/battery-day-card/blob/main/blueprints/automation/muhkuh666/battery_notifications.yaml
+  input:
+    soc_entity:
+      name: State of charge / Ladezustand (SoC)
+      selector:
+        entity:
+          domain: sensor
+    notify_device:
+      name: Phone / Handy (Home Assistant Companion App)
+      selector:
+        device:
+          integration: mobile_app
+    battery_name:
+      name: Battery name / Name der Batterie
+      default: Batterie
+      selector:
+        text: {}
+    full_level:
+      name: "Full when above / Voll, wenn über (%)"
+      description: 99 = notify when the battery reaches 100 %. 99 = Meldung bei 100 %.
+      default: 99
+      selector:
+        number: { min: 50, max: 100, step: 1, unit_of_measurement: "%" }
+    limit_level:
+      name: "Discharge limit / Entladegrenze (%)"
+      default: 10
+      selector:
+        number: { min: 0, max: 50, step: 1, unit_of_measurement: "%" }
+    temp_entity:
+      name: Temperature / Temperatur (optional)
+      default: []
+      selector:
+        entity:
+          domain: sensor
+    temp_limit:
+      name: "Temperature limit / Temperaturgrenze (°C)"
+      default: 40
+      selector:
+        number: { min: 20, max: 70, step: 1, unit_of_measurement: "°C" }
+    soh_entity:
+      name: State of health / Gesundheit (SoH, optional)
+      default: []
+      selector:
+        entity:
+          domain: sensor
+    soh_limit:
+      name: "SoH limit / SoH-Grenze (%)"
+      default: 80
+      selector:
+        number: { min: 50, max: 100, step: 1, unit_of_measurement: "%" }
+    notify_full:
+      name: Notify when full / Bei „voll“ benachrichtigen
+      default: true
+      selector:
+        boolean: {}
+    notify_limit:
+      name: Notify at discharge limit / Bei Entladegrenze benachrichtigen
+      default: true
+      selector:
+        boolean: {}
+    quiet_start:
+      name: Quiet hours start / Ruhezeit ab
+      description: No notifications between start and end (same value = no quiet hours). Keine Meldungen zwischen Beginn und Ende.
+      default: "22:00:00"
+      selector:
+        time: {}
+    quiet_end:
+      name: Quiet hours end / Ruhezeit bis
+      default: "22:00:00"
+      selector:
+        time: {}
+
+mode: queued
+max_exceeded: silent
+
+variables:
+  battery_name: !input battery_name
+  temp_entity: !input temp_entity
+  temp_limit: !input temp_limit
+  soh_limit: !input soh_limit
+  notify_full: !input notify_full
+  notify_limit: !input notify_limit
+  quiet_start: !input quiet_start
+  quiet_end: !input quiet_end
+
+trigger:
+  - platform: numeric_state
+    entity_id: !input soc_entity
+    above: !input full_level
+    id: full
+  - platform: numeric_state
+    entity_id: !input soc_entity
+    below: !input limit_level
+    id: limit
+  - platform: numeric_state
+    entity_id: !input temp_entity
+    above: !input temp_limit
+    for: { minutes: 5 }
+    id: temp
+  - platform: numeric_state
+    entity_id: !input soh_entity
+    below: !input soh_limit
+    for: { hours: 1 }
+    id: soh
+
+condition:
+  - condition: template
+    value_template: >-
+      {% set s = quiet_start[:5] %}{% set e = quiet_end[:5] %}{% set n = now().strftime('%H:%M') %}
+      {% if s == e %}true{% elif s < e %}{{ not (s <= n < e) }}{% else %}{{ not (n >= s or n < e) }}{% endif %}
+  - condition: template
+    value_template: >-
+      {{ (trigger.id != 'full' or notify_full) and (trigger.id != 'limit' or notify_limit) }}
+
+action:
+  - variables:
+      value: "{{ trigger.to_state.state | float(0) | round(1) }}"
+      msg: >-
+        {% if trigger.id == 'full' %}🔋 {{ battery_name }} ist voll geladen ({{ value | int }} %).
+        {% elif trigger.id == 'limit' %}🪫 {{ battery_name }} hat die Entladegrenze erreicht ({{ value | int }} %).
+        {% elif trigger.id == 'temp' %}🌡️ {{ battery_name }} ist {{ value }} °C warm (Grenze {{ temp_limit }} °C).
+        {% else %}🩺 Gesundheit von {{ battery_name }} ist auf {{ value }} % gesunken (Grenze {{ soh_limit }} %).{% endif %}
+  - domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    title: "{{ battery_name }}"
+    message: "{{ msg }}"

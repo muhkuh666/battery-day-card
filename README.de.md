@@ -13,6 +13,8 @@ Lovelace-Karte für Home Assistant, die zeigt, **wann und wie stark deine Hausba
 ![Live](https://raw.githubusercontent.com/muhkuh666/battery-day-card/main/images/live.gif)
 
 
+**Energiefluss** – Live-Mini-Grafik PV → Batterie → Haus ↔ Netz mit animierten Linien, direkt unter dem Live-Status.
+
 **Tagesansicht**
 - Gespiegeltes Diagramm: Laden nach oben, Entladen nach unten – Fläche oder Balken, mit „jetzt“-Linie und markierten Spitzen
 - **Vergleichslinie**: gestern oder Ø der letzten 7 Tage (gestrichelt, zeigt auch den erwarteten Rest des Tages)
@@ -21,12 +23,14 @@ Lovelace-Karte für Home Assistant, die zeigt, **wann und wie stark deine Hausba
 - Heatmap in drei Stilen: **Kachelreihen**, **Netto-Band** oder **Tagesuhr** (24-h-Ring)
 - Stärkste Lade- und Entladestunden
 
-**Woche & Monat**
-- Tagesbalken, bester Lade-/Entladetag, Top-Tage – Klick auf einen Tag öffnet ihn
+**Woche, Monat & Jahr**
+- Tagesbalken (Woche/Monat) oder **Monatsbalken (Jahr)** mit Summen, Zyklen und Ersparnis; bester Tag/Monat, Top-Tage/-Monate – Klick öffnet den Zeitraum
 - **Muster-Heatmap** Wochentag × Stunde (wie bei GitHub)
+- **Wochenenden und Feiertage** markiert (Feiertage aus einem Kalender, z. B. Integration *Feiertage*)
 
 **Batterie-Status & Auswertung**
-- Ladezustand (SoC) mit Tagesspanne, **Gesundheit (SoH)**, **Temperatur** mit Tagesspanne
+- Ladezustand (SoC) mit Tagesspanne, **Gesundheit (SoH) mit Trend-Linie und Alterung pro Jahr**, **Temperatur** mit Tagesspanne
+- **Batterie-Anteil am Verbrauch** – wie viel deines Hausverbrauchs die Batterie gedeckt hat, gesamt und abends/nachts
 - **Wirkungsgrad** (SoC-korrigiert), **Vollzyklen**, **Ersparnis** (fester Preis oder Preissensor, z. B. Tibber), **Prognose** („reicht bis ca. 23:40“ / „voll um ca. 14:50“)
 
 **Außerdem**
@@ -35,10 +39,17 @@ Lovelace-Karte für Home Assistant, die zeigt, **wann und wie stark deine Hausba
 - **Kompakt-Layout** für Handy und Seitenleisten
 - **Deutsch & Englisch**, folgt der HA-Sprache
 - Farbschema **Dunkel / Hell / Automatisch**, alle Farben wählbar
+- **Als Bild speichern** – die Karte als PNG exportieren (z. B. für Foren)
 - **Alles im grafischen Editor einstellbar** – Antippen von Kennzahlen oder Status-Chips öffnet die Detailansicht des Sensors
 
 ![Ansichten](https://raw.githubusercontent.com/muhkuh666/battery-day-card/main/images/views.png)
 ![Weitere](https://raw.githubusercontent.com/muhkuh666/battery-day-card/main/images/more.png)
+
+## Benachrichtigungs-Blueprint
+
+Push-Meldung aufs Handy, wenn die Batterie **voll** ist, die **Entladegrenze** erreicht, **zu warm** wird oder die **Gesundheit (SoH)** unter einen Grenzwert fällt – mit optionaler Ruhezeit.
+
+[![Open your Home Assistant instance and show the blueprint import dialog.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fmuhkuh666%2Fbattery-day-card%2Fmain%2Fblueprints%2Fautomation%2Fmuhkuh666%2Fbattery_notifications.yaml)
 
 ## Installation
 
@@ -67,6 +78,8 @@ capacity_kwh: 10.4
 min_soc: 10
 pv_entity: sensor.pv_leistung
 grid_entity: sensor.netz_leistung
+load_entity: sensor.hausverbrauch
+holiday_calendar: calendar.feiertage
 price: 0.32
 compare: avg7
 heatmap_style: net
@@ -89,6 +102,8 @@ Alle Optionen mit Standardwerten stehen in der [englischen README](README.md#opt
 - **Wirkungsgrad** = (Entladen + Zunahme der gespeicherten Energie laut SoC) ÷ Geladen. Ohne Kapazität/SoC: Entladen ÷ Geladen.
 - **Zyklen** = (Geladen + Entladen) ÷ 2 ÷ Kapazität.
 - **Ersparnis** = entladene Energie × Strompreis der jeweiligen Stunde.
+- **Batterie-Anteil** = von der Batterie gelieferte Energie ÷ Hausverbrauch (stündlich, höchstens der Verbrauch). Ohne `load_entity` wird der Verbrauch aus PV + Netz + Batterie berechnet; Abendfenster über `evening_start` / `evening_end` (Standard 18–6 Uhr).
+- **SoH-Trend** = lineare Regression über die Wochenmittel der letzten ~13 Monate.
 - **Zeit bis voll / leer**: aktuelle Batterieleistung, geglättet mit dem Mittel der letzten 15 Minuten, aktueller SoC und nutzbare Kapazität (bis zur Entladegrenze `min_soc`). Neue Optionen: `show_live`, `live_animation`.
 
 ## Unterstützung
