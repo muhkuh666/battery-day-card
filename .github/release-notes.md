@@ -1,19 +1,12 @@
-## Battery Day Card 2.2 🌞🔋🏠
+## Battery Day Card 2.3 🪫⚡
 
 ### New / Neu
-- **Energy flow** – live mini graphic PV → battery → home ↔ grid with animated lines · **Energiefluss** mit animierten Linien
-- **Year view** – monthly bars, yearly totals, cycles, savings, best/top months · **Jahresansicht** mit Monatsbalken
-- **Battery share of consumption** – overall and evening/night (optional `load_entity`, otherwise derived from PV + grid) · **Batterie-Anteil am Verbrauch**, gesamt und abends
-- **SoH trend** – sparkline + ageing per year from long-term statistics · **SoH-Trend** mit Alterung pro Jahr
-- **Weekends & holidays** highlighted in week/month view (holiday calendar) · **Wochenende & Feiertage** markiert
-- **Save as image** – PNG export button · **Als Bild speichern**
-- **Notifications blueprint** – battery full, discharge limit, temperature, SoH, quiet hours · **Benachrichtigungs-Blueprint**
+- **Grid import while battery empty** – heatmap of the hours when the battery sat at its discharge limit and power came from the grid · **Netzbezug bei leerer Batterie** als Heatmap
+  - Day: kWh, cost, "empty from 21:40 · empty for 3 h 15 min" · Tag: kWh, Kosten, „leer ab … · … leer“
+  - Week / month / year: weekday × hour pattern, "empty on 9 of 21 days", "Ø empty from 22:10" · Woche/Monat/Jahr: Muster, „an 9 von 21 Tagen leer“, „Ø leer ab 22:10“
+  - Shows how much a bigger battery (or a lower discharge limit) could have saved · zeigt, was eine größere Batterie hätte sparen können
 
-### Improved / Verbessert
-- Live values update without restarting animations · Live-Werte aktualisieren ohne Animations-Neustart
-- Click a month in the year view to open it · Klick auf Monat öffnet die Monatsansicht
-
-All new options are in the visual editor. · Alle neuen Optionen sind im Editor einstellbar.
+New option: `show_empty_grid` (needs `grid_entity` + `soc_entity`; on by default). · Neue Option `show_empty_grid`.
 
 **Install:** HACS → Custom repositories → `https://github.com/muhkuh666/battery-day-card` (type **Dashboard**)
 

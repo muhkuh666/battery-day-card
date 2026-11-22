@@ -31,6 +31,7 @@ Lovelace-Karte für Home Assistant, die zeigt, **wann und wie stark deine Hausba
 **Batterie-Status & Auswertung**
 - Ladezustand (SoC) mit Tagesspanne, **Gesundheit (SoH) mit Trend-Linie und Alterung pro Jahr**, **Temperatur** mit Tagesspanne
 - **Batterie-Anteil am Verbrauch** – wie viel deines Hausverbrauchs die Batterie gedeckt hat, gesamt und abends/nachts
+- **Netzbezug bei leerer Batterie** – Heatmap der Stunden, in denen die Batterie an der Entladegrenze war und Strom aus dem Netz kam, mit kWh, Kosten und „leer ab“-Uhrzeit; in Woche/Monat/Jahr zusätzlich, an wie vielen Tagen die Batterie leer war und ab wann im Schnitt (Option `show_empty_grid`, braucht Netz- und SoC-Sensor)
 - **Wirkungsgrad** (SoC-korrigiert), **Vollzyklen**, **Ersparnis** (fester Preis oder Preissensor, z. B. Tibber), **Prognose** („reicht bis ca. 23:40“ / „voll um ca. 14:50“)
 
 **Außerdem**

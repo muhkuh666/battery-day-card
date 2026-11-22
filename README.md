@@ -36,6 +36,7 @@ A Lovelace card for Home Assistant that shows **when and how strongly your home 
 **Battery status & insights**
 - State of charge (SoC) with today's range, **state of health (SoH) with trend sparkline and ageing per year**, **temperature** with today's range
 - **Battery share of consumption** – how much of your home consumption the battery covered, overall and in the evening/night window
+- **Grid import while battery empty** – heatmap of the hours when the battery was at its discharge limit and power came from the grid, with kWh, cost, "empty from" time and, for week/month/year, on how many days the battery ran empty and the average time it did
 - **Efficiency** (SoC‑corrected), **full cycles**, **savings** (fixed price or price sensor, e.g. Tibber), **forecast** ("lasts until ~23:40" / "full at ~14:50")
 
 **Everything else**
@@ -152,6 +153,7 @@ batteries:
 | `show_stats` / `show_status` / `show_insights` / `show_heatmap` / `show_top` | `true` | Show or hide sections |
 | `show_live` | `true` | Live status with time until full / empty (needs `soc_entity` + `capacity_kwh` for the times) |
 | `live_animation` | `true` | Animated battery (respects "reduce motion") |
+| `show_empty_grid` | `true` | Heatmap "grid import while battery empty" (needs `grid_entity` + `soc_entity`) |
 | `show_flow` | `true` | Energy flow graphic (needs `pv_entity` and/or `grid_entity`) |
 | `show_soh_trend` | `true` | SoH sparkline and ageing per year (long-term statistics) |
 | `highlight_weekends` | `true` | Highlight weekends and holidays in week/month view |
