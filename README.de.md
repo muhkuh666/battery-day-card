@@ -8,6 +8,11 @@ Lovelace-Karte für Home Assistant, die zeigt, **wann und wie stark deine Hausba
 
 ## Funktionen
 
+**Live-Status** – animierte Batterie zeigt **Lädt gerade / Entlädt gerade / Bereitschaft** mit aktueller Leistung und SoC, dazu **Zeit bis voll** bzw. **Zeit bis leer** (bis zur Entladegrenze) inkl. Uhrzeit. Aktualisiert sich sofort bei jeder Sensoränderung.
+
+![Live](https://raw.githubusercontent.com/muhkuh666/battery-day-card/main/images/live.gif)
+
+
 **Tagesansicht**
 - Gespiegeltes Diagramm: Laden nach oben, Entladen nach unten – Fläche oder Balken, mit „jetzt“-Linie und markierten Spitzen
 - **Vergleichslinie**: gestern oder Ø der letzten 7 Tage (gestrichelt, zeigt auch den erwarteten Rest des Tages)
@@ -84,7 +89,7 @@ Alle Optionen mit Standardwerten stehen in der [englischen README](README.md#opt
 - **Wirkungsgrad** = (Entladen + Zunahme der gespeicherten Energie laut SoC) ÷ Geladen. Ohne Kapazität/SoC: Entladen ÷ Geladen.
 - **Zyklen** = (Geladen + Entladen) ÷ 2 ÷ Kapazität.
 - **Ersparnis** = entladene Energie × Strompreis der jeweiligen Stunde.
-- **Prognose**: mittlere Batterieleistung der letzten 30 Minuten und aktueller SoC bis zur Entladegrenze `min_soc`.
+- **Zeit bis voll / leer**: aktuelle Batterieleistung, geglättet mit dem Mittel der letzten 15 Minuten, aktueller SoC und nutzbare Kapazität (bis zur Entladegrenze `min_soc`). Neue Optionen: `show_live`, `live_animation`.
 
 ## Unterstützung
 

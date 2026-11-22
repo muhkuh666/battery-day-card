@@ -13,6 +13,11 @@ A Lovelace card for Home Assistant that shows **when and how strongly your home 
 
 ## Features
 
+**Live status** – animated battery shows **charging / discharging / standby** with current power and SoC, plus **time until full** or **time until empty** (down to your discharge limit) incl. clock time. Updates instantly with every sensor change.
+
+![Live](https://raw.githubusercontent.com/muhkuh666/battery-day-card/main/images/live.gif)
+
+
 **Day view**
 - Mirrored chart: charging up, discharging down – area or bars, with "now" line and marked peaks
 - **Comparison line**: yesterday or Ø of the last 7 days (dashed, also shows the expected rest of today)
@@ -130,6 +135,8 @@ batteries:
 | **Sections** | | |
 | `layout` | `full` | `full` or `compact` |
 | `show_stats` / `show_status` / `show_insights` / `show_heatmap` / `show_top` | `true` | Show or hide sections |
+| `show_live` | `true` | Live status with time until full / empty (needs `soc_entity` + `capacity_kwh` for the times) |
+| `live_animation` | `true` | Animated battery (respects "reduce motion") |
 | `heatmap_style` | `rows` | `rows`, `net` or `clock` |
 | `top_count` | `3` | Number of top entries (1–8) |
 | **Colors** | | Hex (`"#2fd38a"`), RGB list or CSS variable |
@@ -146,7 +153,7 @@ batteries:
 - **Efficiency** = (discharged + increase of stored energy via SoC) ÷ charged. Without capacity/SoC: discharged ÷ charged.
 - **Cycles** = (charged + discharged) ÷ 2 ÷ capacity.
 - **Savings** = discharged energy × electricity price of the respective hour.
-- **Forecast** uses the average battery power of the last 30 minutes and the current SoC down to `min_soc`.
+- **Time until full / empty** uses the current battery power, smoothed with the average of the last 15 minutes, the current SoC and the usable capacity (down to `min_soc`).
 
 ## Support
 

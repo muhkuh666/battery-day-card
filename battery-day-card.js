@@ -4,7 +4,7 @@
  * mit Spitzen, Heatmap, Wirkungsgrad, Zyklen, Ersparnis und Prognose.
  * https://github.com/muhkuh666/battery-day-card
  */
-const CARD_VERSION = "2.0.2";
+const CARD_VERSION = "2.1.0";
 
 const HOUR_MS = 3600 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -58,6 +58,8 @@ const DEFAULTS = {
   show_stats: true,
   show_status: true,
   show_insights: true,
+  show_live: true,
+  live_animation: true,
   show_heatmap: true,
   heatmap_style: "rows", // rows | net | clock
   show_top: true,
@@ -94,6 +96,8 @@ const STR = {
     top_charge_days: "Stärkste Ladetage", top_discharge_days: "Stärkste Entladetage",
     no_activity: "keine Aktivität", oclock: "Uhr",
     efficiency: "Wirkungsgrad", cycles: "Zyklen", savings: "Ersparnis", per_day: "Ø pro Tag", forecast: "Prognose",
+    charging_now: "Lädt gerade", discharging_now: "Entlädt gerade", standby: "Bereitschaft", full_in: "voll in", empty_in: "leer in",
+    approx: "ca. {t}", tomorrow: "morgen", battery_full: "Batterie voll", limit_reached: "Entladegrenze erreicht", until_pct: "bis {p} %", live_power: "Leistung jetzt",
     lasts_until: "reicht bis ca. {t}", full_at: "voll um ca. {t}", full: "voll", idle: "Leerlauf", more_than_day: "reicht > 24 h",
     soc: "Ladezustand", soh: "Gesundheit", temp: "Temperatur", range_today: "heute {a} – {b}",
     pv: "PV", grid_in: "Netzbezug", grid_out: "Einspeisung",
@@ -116,6 +120,8 @@ const STR = {
     top_charge_days: "Top charging days", top_discharge_days: "Top discharging days",
     no_activity: "no activity", oclock: "",
     efficiency: "Efficiency", cycles: "Cycles", savings: "Savings", per_day: "Ø per day", forecast: "Forecast",
+    charging_now: "Charging", discharging_now: "Discharging", standby: "Standby", full_in: "full in", empty_in: "empty in",
+    approx: "~{t}", tomorrow: "tomorrow", battery_full: "Battery full", limit_reached: "Discharge limit reached", until_pct: "down to {p} %", live_power: "Power now",
     lasts_until: "lasts until ~{t}", full_at: "full at ~{t}", full: "full", idle: "idle", more_than_day: "lasts > 24 h",
     soc: "State of charge", soh: "Health", temp: "Temperature", range_today: "today {a} – {b}",
     pv: "PV", grid_in: "Grid import", grid_out: "Grid export",
@@ -276,6 +282,7 @@ class BatteryDayCard extends HTMLElement {
     if (!this._config) return;
     const refresh = Math.max(1, this._config.refresh_minutes) * 60 * 1000;
     if (first) this._render();
+    else this._updateLive();
     if (first || (this._offset === 0 && !this._zoom && Date.now() - this._lastFetch > refresh)) this._fetch();
   }
 
@@ -641,7 +648,9 @@ class BatteryDayCard extends HTMLElement {
       }
     }
     // Wirkungsgrad: (Entladen + gespeicherte Energiezunahme) / Laden
-    const eff = C > 0.3 ? (D + (dE ?? 0)) / C : null;
+    let eff = C > 0.3 ? (D + (dE ?? 0)) / C : null;
+    // unplausible SoC-Korrektur (Messrauschen, Kalibrierung) → einfache Rechnung
+    if (eff !== null && (eff > 1.02 || eff < 0.4)) eff = D / C <= 1.02 ? D / C : null;
     const cycles = capTotal ? (C + D) / 2 / capTotal : null;
     let savings = null;
     if (c.price_entity || c.price > 0) {
@@ -651,6 +660,155 @@ class BatteryDayCard extends HTMLElement {
     }
     const forecast = r.isCurrent ? this._forecast(set, bats, capTotal) : null;
     return { kind: "day", r, hist, ...set, status, compare, insights: { eff, cycles, savings, forecast } };
+  }
+
+  /* ------------------------------------------------------------ Live-Status */
+
+  /** aktuelle Batterieleistung in kW (positiv = laden) aus den Live-Zuständen */
+  _livePower(bats) {
+    let p = 0;
+    for (const b of bats) {
+      const kw = (id) => {
+        const v = this._state(id);
+        if (v === null || this._isEnergy(id)) return null;
+        const u = this._unit(id);
+        return v * (/^w$/i.test(u) ? 0.001 : /^mw$/i.test(u) ? 1000 : 1);
+      };
+      if (b.mode === "combined") {
+        const v = kw(b.power_entity);
+        if (v === null) return null;
+        p += v * (b.invert ? -1 : 1);
+      } else {
+        const c = kw(b.charge_entity), d = kw(b.discharge_entity);
+        if (c === null || d === null) return null;
+        p += Math.max(0, c) - Math.max(0, d);
+      }
+    }
+    return p;
+  }
+
+  _avgRate() {
+    const d = this._data;
+    if (!d || d.kind !== "day" || !d.r.isCurrent) return null;
+    const now = Date.now(), win = 15 * 60 * 1000;
+    let ec = 0, ed = 0;
+    d.charge.energy.forEach((e, i) => {
+      const bs = d.start + i * d.bucketMs;
+      if (bs + d.bucketMs > now - win && bs < now) {
+        ec += e;
+        ed += d.discharge.energy[i];
+      }
+    });
+    const h = Math.min(win + d.bucketMs, now - d.start) / HOUR_MS;
+    return h > 0 ? (ec - ed) / h : null;
+  }
+
+  _duration(h) {
+    if (h > 24) return "> 24 h";
+    const m = Math.max(1, Math.round(h * 60));
+    const H = Math.floor(m / 60), M = m % 60;
+    return H ? `${H} h${M ? ` ${M} min` : ""}` : `${M} min`;
+  }
+
+  _clockAt(ms) {
+    const t = fmtTime(ms);
+    return dayStartOf(ms) !== dayStartOf(Date.now()) ? `${this._t("tomorrow")} ${t}` : t;
+  }
+
+  _liveInfo() {
+    const bats = this._selected();
+    const live = this._livePower(bats);
+    const avg = this._avgRate();
+    const p = live ?? avg;
+    if (p === null) return null;
+    const state = p > 0.05 ? "charging" : p < -0.05 ? "discharging" : "idle";
+    // SoC (kapazitätsgewichtet)
+    const socs = bats.map((b) => (b.soc_entity ? this._state(b.soc_entity) : null));
+    const caps = bats.map((b) => b.capacity_kwh);
+    let soc = null;
+    if (socs.every((v) => v !== null)) {
+      const capSum = sum(caps);
+      soc = capSum && caps.every((x) => x > 0) ? sum(socs.map((v, i) => v * caps[i])) / capSum : sum(socs) / socs.length;
+    }
+    // Rate für die Restzeit: Live-Wert, geglättet mit dem Mittel der letzten 15 min
+    let rate = p;
+    if (live !== null && avg !== null && Math.sign(live) === Math.sign(avg)) rate = 0.5 * live + 0.5 * avg;
+    let time = null;
+    const capOk = caps.every((x) => x > 0) && soc !== null;
+    if (capOk && state === "charging") {
+      if (socs.every((v) => v >= 99.5)) time = { done: this._t("battery_full") };
+      else {
+        const need = sum(bats.map((b, i) => (Math.max(0, 100 - socs[i]) / 100) * b.capacity_kwh));
+        const h = need / Math.max(rate, 0.05);
+        time = { label: this._t("full_in"), dur: this._duration(h), at: h <= 24 ? this._clockAt(Date.now() + h * HOUR_MS) : "" };
+      }
+    } else if (capOk && state === "discharging") {
+      const avail = sum(bats.map((b, i) => (Math.max(0, socs[i] - b.min_soc) / 100) * b.capacity_kwh));
+      if (avail <= 0.01) time = { done: this._t("limit_reached") };
+      else {
+        const h = avail / Math.max(-rate, 0.05);
+        const minSoc = bats.length === 1 ? bats[0].min_soc : null;
+        time = {
+          label: this._t("empty_in"),
+          dur: this._duration(h),
+          at: h <= 24 ? this._clockAt(Date.now() + h * HOUR_MS) : "",
+          note: minSoc ? this._t("until_pct", { p: minSoc }) : "",
+        };
+      }
+    }
+    return { state, p, soc, time };
+  }
+
+  _batterySvg(state, soc) {
+    const c = this._config;
+    const lvl = soc === null ? (state === "idle" ? 50 : 60) : Math.max(4, Math.min(100, soc));
+    const col = state === "discharging" ? c.discharge_color : state === "charging" ? c.charge_color : "var(--secondary-text-color)";
+    const w = 52 * (lvl / 100);
+    const anim = c.live_animation && state !== "idle";
+    const stripes = anim
+      ? `<g clip-path="url(#bdcfill)"><g class="stripes ${state}">${Array.from({ length: 12 }, (_, i) => `<path d="M${-28 + i * 9},30 l10,-26 h4 l-10,26 z" fill="#fff" opacity=".22"/>`).join("")}</g></g>`
+      : "";
+    const bolt = state === "charging" ? `<path class="bolt${anim ? " pulse2" : ""}" d="M33 6 L25 18 H31 L28 28 L37 15 H31 Z" fill="#fff" stroke="${col}" stroke-width="1"/>` : "";
+    const flow =
+      state === "discharging" && anim
+        ? `<g class="flow">${[0, 1, 2].map((i) => `<circle cx="66" cy="17" r="2.2" fill="${col}" style="animation-delay:${i * 0.4}s"/>`).join("")}</g>`
+        : state === "charging" && anim
+        ? `<g class="flowin">${[0, 1, 2].map((i) => `<circle cx="78" cy="17" r="2.2" fill="${col}" style="animation-delay:${i * 0.4}s"/>`).join("")}</g>`
+        : "";
+    return `<svg viewBox="0 0 84 34" class="battsvg ${anim ? "glow" : ""}" style="--lc:${col}">
+      <defs><clipPath id="bdcfill"><rect x="4" y="4" width="${w}" height="26" rx="3"/></clipPath></defs>
+      <rect x="1" y="1" width="58" height="32" rx="6" fill="none" stroke="${col}" stroke-width="2"/>
+      <rect x="60" y="11" width="4" height="12" rx="1.5" fill="${col}"/>
+      <rect x="4" y="4" width="${w}" height="26" rx="3" fill="${col}" class="lvl"/>
+      ${stripes}${bolt}${flow}
+    </svg>`;
+  }
+
+  _liveHtml() {
+    const c = this._config;
+    if (!c.show_live || !this._hass) return `<div id="live"></div>`;
+    const info = this._liveInfo();
+    if (!info) return `<div id="live"></div>`;
+    const { state, p, soc, time } = info;
+    const title = state === "charging" ? this._t("charging_now") : state === "discharging" ? this._t("discharging_now") : this._t("standby");
+    const pow = `${this._kw(Math.abs(p))} kW${soc !== null ? ` · ${this._num(soc, 0)} %` : ""}`;
+    let right = "";
+    if (time?.done) right = `<div class="ltime"><b>${time.done}</b></div>`;
+    else if (time) right = `<div class="ltime"><small>${time.label}</small><b>${time.dur}</b><small>${time.at ? this._t("approx", { t: time.at }) : ""}${time.note ? ` · ${time.note}` : ""}</small></div>`;
+    return `<div id="live" class="live ${state}">
+      <div class="batt">${this._batterySvg(state, soc)}</div>
+      <div class="ltxt"><div class="lstate">${title}</div><div class="lpow">${pow}</div></div>
+      ${right}
+    </div>`;
+  }
+
+  _updateLive() {
+    const el = this.shadowRoot?.getElementById("live");
+    if (!el || !this._config?.show_live) return;
+    const html = this._liveHtml();
+    if (html === this._lastLive) return;
+    this._lastLive = html;
+    el.outerHTML = html;
   }
 
   _forecast(set, bats, capTotal) {
@@ -827,7 +985,7 @@ class BatteryDayCard extends HTMLElement {
     else if (d.kind === "day") body = this._renderDay(d);
     else body = this._renderPeriod(d);
     this._geo = this._geo && d ? this._geo : null;
-    this.shadowRoot.innerHTML = `<style>${this._css()}</style><ha-card class="${c.layout === "compact" ? "compact" : ""}">${this._header()}${body}</ha-card>`;
+    this.shadowRoot.innerHTML = `<style>${this._css()}</style><ha-card class="${c.layout === "compact" ? "compact" : ""}">${this._header()}${this._liveHtml()}${body}</ha-card>`;
     this._bind();
   }
 
@@ -884,7 +1042,7 @@ class BatteryDayCard extends HTMLElement {
       </div>`);
     }
     if (c.layout === "compact") {
-      parts.push(this._insightsRow(d.insights, true));
+      if (!c.show_live) parts.push(this._insightsRow(d.insights, true));
       parts.push(this._heatNet(d));
       return parts.join("");
     }
@@ -990,7 +1148,7 @@ class BatteryDayCard extends HTMLElement {
     const items = [];
     const chip = (icon, label, value, cls = "") =>
       `<div class="ins ${cls}"><ha-icon icon="${icon}"></ha-icon><div><small>${label}</small><b>${value}</b></div></div>`;
-    if (ins.forecast) {
+    if (ins.forecast && !this._config.show_live) {
       const k = ins.forecast.kind;
       const icon = k === "discharge" ? "mdi:battery-arrow-down" : k === "charge" ? "mdi:battery-arrow-up" : "mdi:battery-clock";
       items.push(chip(icon, this._t("forecast"), ins.forecast.text, k));
@@ -1515,6 +1673,35 @@ class BatteryDayCard extends HTMLElement {
       .chipi b, .ins b { font-weight:700; font-variant-numeric:tabular-nums; display:block; white-space:nowrap; }
       .chipi small, .ins small { display:block; font-size:.68rem; color:var(--secondary-text-color); white-space:nowrap; }
       .ins.discharge ha-icon { color:var(--bdc-dis); } .ins.charge ha-icon { color:var(--bdc-charge); } .ins.money ha-icon { color:#e7b416; }
+      .live { display:flex; align-items:center; gap:14px; padding:10px 14px; border-radius:14px; margin-bottom:10px;
+        background:var(--secondary-background-color, rgba(127,127,127,.1)); border:1px solid transparent; }
+      .live.charging { background:linear-gradient(110deg, color-mix(in srgb, var(--bdc-charge) 20%, transparent), color-mix(in srgb, var(--bdc-charge) 5%, transparent));
+        border-color:color-mix(in srgb, var(--bdc-charge) 35%, transparent); }
+      .live.discharging { background:linear-gradient(110deg, color-mix(in srgb, var(--bdc-dis) 20%, transparent), color-mix(in srgb, var(--bdc-dis) 5%, transparent));
+        border-color:color-mix(in srgb, var(--bdc-dis) 35%, transparent); }
+      .batt { flex:none; width:76px; }
+      .battsvg { width:76px; height:31px; display:block; overflow:visible; }
+      .battsvg.glow { animation:glow 2.4s ease-in-out infinite; }
+      @keyframes glow { 0%,100%{ filter:drop-shadow(0 0 0 transparent);} 50%{ filter:drop-shadow(0 0 6px var(--lc)); } }
+      .stripes.charging { animation:stripesR 1.1s linear infinite; }
+      .stripes.discharging { animation:stripesL 1.1s linear infinite; }
+      @keyframes stripesR { from{ transform:translateX(0);} to{ transform:translateX(9px);} }
+      @keyframes stripesL { from{ transform:translateX(9px);} to{ transform:translateX(0);} }
+      .pulse2 { animation:pulse2 1.4s ease-in-out infinite; transform-box:fill-box; transform-origin:center; }
+      @keyframes pulse2 { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.18); } }
+      .flow circle { animation:flowOut 1.2s linear infinite; opacity:0; }
+      @keyframes flowOut { 0%{ transform:translateX(0); opacity:0;} 20%{opacity:1;} 100%{ transform:translateX(16px); opacity:0;} }
+      .flowin circle { animation:flowIn 1.2s linear infinite; opacity:0; }
+      @keyframes flowIn { 0%{ transform:translateX(0); opacity:0;} 20%{opacity:1;} 100%{ transform:translateX(-14px); opacity:0;} }
+      .ltxt { min-width:0; flex:1; }
+      .lstate { font-weight:700; font-size:1rem; color:var(--primary-text-color); white-space:nowrap; }
+      .live.charging .lstate { color:var(--bdc-charge); } .live.discharging .lstate { color:var(--bdc-dis); }
+      .lpow { font-size:.82rem; color:var(--secondary-text-color); font-variant-numeric:tabular-nums; white-space:nowrap; }
+      .ltime { text-align:right; flex:none; }
+      .ltime small { display:block; font-size:.7rem; color:var(--secondary-text-color); white-space:nowrap; }
+      .ltime b { display:block; font-size:1.15rem; font-weight:700; color:var(--primary-text-color); font-variant-numeric:tabular-nums; white-space:nowrap; }
+      .compact .live { padding:8px 10px; } .compact .batt, .compact .battsvg { width:60px; } .compact .battsvg { height:25px; }
+      @media (prefers-reduced-motion: reduce) { .battsvg.glow, .stripes, .pulse2, .flow circle, .flowin circle, .pulse { animation:none !important; } .flow circle, .flowin circle { opacity:.8; } }
       .socbar { width:64px; height:5px; border-radius:3px; background:color-mix(in srgb, var(--secondary-text-color) 20%, transparent); margin:3px 0 2px; overflow:hidden; }
       .socbar i { display:block; height:100%; border-radius:3px; }
       .chart { position:relative; }
@@ -1599,7 +1786,7 @@ const ED = {
       chart_type: "Diagrammtyp", smooth: "Kurve glätten", chart_height: "Diagrammhöhe", bucket_minutes: "Auflösung", y_max: "Feste Skala (0 = auto)",
       compare: "Vergleichslinie", show_pv: "PV-Linie", show_grid_power: "Netz-Linie", show_peaks: "Spitzen markieren", animate_peaks: "Spitzen animieren",
       show_now_line: "„jetzt“-Linie", show_grid: "Gitterlinien", show_soc: "SoC-Linie", zoom_on_click: "Zoom per Klick",
-      layout: "Layout", show_stats: "Kennzahlen", show_status: "Batterie-Status", show_insights: "Auswertung",
+      layout: "Layout", show_stats: "Kennzahlen", show_status: "Batterie-Status", show_insights: "Auswertung", show_live: "Live-Status (lädt / entlädt)", live_animation: "Animation",
       show_heatmap: "Heatmap", heatmap_style: "Heatmap-Stil", show_top: "Top-Stunden/-Tage", top_count: "Anzahl Top-Einträge",
       theme: "Farbschema", charge_color: "Laden", discharge_color: "Entladen", soc_color: "SoC", now_color: "„jetzt“-Linie", pv_color: "PV", grid_color: "Netz",
       refresh_minutes: "Aktualisierung",
@@ -1615,7 +1802,8 @@ const ED = {
       unit_mode: "Automatisch erkennt W/kW (Leistung) und Wh/kWh (Zähler).",
       theme: "Dunkel/Hell gilt nur für diese Karte.",
       show_status: "SoC, Gesundheit (SoH) und Temperatur.",
-      show_insights: "Wirkungsgrad, Zyklen, Ersparnis, Prognose.",
+      show_insights: "Wirkungsgrad, Zyklen, Ersparnis.",
+      show_live: "Mit Restzeit bis voll / leer – braucht SoC-Sensor und Kapazität.",
     },
     sections: { sensors: "Batterie", battery2: "Zweite Batterie (optional)", extra: "PV, Netz & Preis", header: "Kopfzeile & Ansicht", chart: "Diagramm", sections: "Bereiche", colors: "Farben", advanced: "Erweitert" },
     opts: {
@@ -1639,7 +1827,7 @@ const ED = {
       chart_type: "Chart type", smooth: "Smooth curve", chart_height: "Chart height", bucket_minutes: "Resolution", y_max: "Fixed scale (0 = auto)",
       compare: "Comparison line", show_pv: "PV line", show_grid_power: "Grid line", show_peaks: "Mark peaks", animate_peaks: "Animate peaks",
       show_now_line: "\"now\" line", show_grid: "Grid lines", show_soc: "SoC line", zoom_on_click: "Click to zoom",
-      layout: "Layout", show_stats: "Key figures", show_status: "Battery status", show_insights: "Insights",
+      layout: "Layout", show_stats: "Key figures", show_status: "Battery status", show_insights: "Insights", show_live: "Live status (charging / discharging)", live_animation: "Animation",
       show_heatmap: "Heatmap", heatmap_style: "Heatmap style", show_top: "Top hours/days", top_count: "Number of top entries",
       theme: "Color scheme", charge_color: "Charge", discharge_color: "Discharge", soc_color: "SoC", now_color: "\"now\" line", pv_color: "PV", grid_color: "Grid",
       refresh_minutes: "Refresh interval",
@@ -1655,7 +1843,8 @@ const ED = {
       unit_mode: "Auto detects W/kW (power) and Wh/kWh (energy meter).",
       theme: "Dark/light only applies to this card.",
       show_status: "SoC, state of health (SoH) and temperature.",
-      show_insights: "Efficiency, cycles, savings, forecast.",
+      show_insights: "Efficiency, cycles, savings.",
+      show_live: "Incl. time until full / empty – needs SoC sensor and capacity.",
     },
     sections: { sensors: "Battery", battery2: "Second battery (optional)", extra: "PV, grid & price", header: "Header & view", chart: "Chart", sections: "Sections", colors: "Colors", advanced: "Advanced" },
     opts: {
@@ -1766,6 +1955,8 @@ class BatteryDayCardEditor extends HTMLElement {
           { name: "show_stats", selector: bool },
           { name: "show_status", selector: bool },
           { name: "show_insights", selector: bool },
+          { name: "show_live", selector: bool },
+          { name: "live_animation", selector: bool },
           { name: "show_heatmap", selector: bool },
           { name: "show_top", selector: bool },
         ]),
