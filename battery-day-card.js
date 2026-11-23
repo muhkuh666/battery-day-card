@@ -4,7 +4,7 @@
  * mit Spitzen, Heatmap, Wirkungsgrad, Zyklen, Ersparnis und Prognose.
  * https://github.com/muhkuh666/battery-day-card
  */
-const CARD_VERSION = "2.3.0";
+const CARD_VERSION = "2.4.0";
 
 const HOUR_MS = 3600 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -98,7 +98,7 @@ const STR = {
     top_charge_months: "Stärkste Lademonate", top_discharge_months: "Stärkste Entlademonate",
     empty_grid: "Netzbezug bei leerer Batterie", empty_from: "leer ab {t}", empty_for: "{d} leer",
     never_empty: "Batterie war nicht leer – kein Netzbezug wegen leerer Batterie 🎉", days_empty: "an {n} von {m} Tagen leer",
-    avg_empty_from: "Ø leer ab {t}", empty_cell: "Batterie leer", not_empty: "Batterie nicht leer",
+    avg_empty_from: "Ø leer ab {t}", ring_empty: "innen: Netz bei leerer Batterie", empty_span: "leer {a}–{b}", empty_cell: "Batterie leer", not_empty: "Batterie nicht leer",
     coverage: "Batterie-Anteil am Verbrauch", evening: "abends", per_year: "pro Jahr", soh_trend: "Trend",
     holiday: "Feiertag", weekend: "Wochenende", pv_short: "PV", grid_short: "Netz", home: "Haus", battery_short: "Batterie",
     export: "Als Bild speichern", export_failed: "Export nicht möglich – SVG wird gespeichert.",
@@ -108,7 +108,7 @@ const STR = {
     loading: "Lade Verlauf …", error: "Fehler beim Laden der Historie:",
     no_stats: "Keine Langzeitstatistik gefunden – die Sensoren brauchen eine state_class (measurement oder total_increasing).",
     more_charged: "mehr geladen", more_discharged: "mehr entladen", net: "netto",
-    outer_charge: "außen: Laden", inner_discharge: "innen: Entladen", center_sum: "Mitte: Summe kWh",
+    outer_charge: "außen: Laden", inner_discharge: "Mitte: Entladen", inner_discharge_only: "innen: Entladen", center_sum: "Mitte: Summe kWh",
     top_charge_hours: "Stärkste Ladestunden", top_discharge_hours: "Stärkste Entladestunden",
     top_charge_days: "Stärkste Ladetage", top_discharge_days: "Stärkste Entladetage",
     no_activity: "keine Aktivität", oclock: "Uhr",
@@ -130,7 +130,7 @@ const STR = {
     top_charge_months: "Top charging months", top_discharge_months: "Top discharging months",
     empty_grid: "Grid import while battery empty", empty_from: "empty from {t}", empty_for: "empty for {d}",
     never_empty: "Battery was never empty – no grid import because of an empty battery 🎉", days_empty: "empty on {n} of {m} days",
-    avg_empty_from: "Ø empty from {t}", empty_cell: "battery empty", not_empty: "battery not empty",
+    avg_empty_from: "Ø empty from {t}", ring_empty: "innermost: grid while battery empty", empty_span: "empty {a}–{b}", empty_cell: "battery empty", not_empty: "battery not empty",
     coverage: "Battery share of consumption", evening: "evening", per_year: "per year", soh_trend: "trend",
     holiday: "Holiday", weekend: "Weekend", pv_short: "PV", grid_short: "Grid", home: "Home", battery_short: "Battery",
     export: "Save as image", export_failed: "Export not possible – saving SVG instead.",
@@ -140,7 +140,7 @@ const STR = {
     loading: "Loading history …", error: "Error loading history:",
     no_stats: "No long-term statistics found – the sensors need a state_class (measurement or total_increasing).",
     more_charged: "more charged", more_discharged: "more discharged", net: "net",
-    outer_charge: "outer: charge", inner_discharge: "inner: discharge", center_sum: "center: total kWh",
+    outer_charge: "outer: charge", inner_discharge: "middle: discharge", inner_discharge_only: "inner: discharge", center_sum: "center: total kWh",
     top_charge_hours: "Top charging hours", top_discharge_hours: "Top discharging hours",
     top_charge_days: "Top charging days", top_discharge_days: "Top discharging days",
     no_activity: "no activity", oclock: "",
@@ -945,6 +945,7 @@ class BatteryDayCard extends HTMLElement {
     };
     const hourly = new Array(24).fill(0), emptyH = new Array(24).fill(0);
     let total = 0, emptyMin = 0, prev = false, from = null;
+    const spans = [];
     for (let i = 0; i < gi.energy.length; i++) {
       const t = r.start + i * bucketMs;
       if (t >= r.end) break;
@@ -959,11 +960,14 @@ class BatteryDayCard extends HTMLElement {
         total += gi.energy[i];
         emptyH[h] += bucketMs / HOUR_MS;
         emptyMin += Math.min(bucketMs, r.end - t) / 60000;
-        if (!prev) from = t;
+        if (!prev) {
+          from = t;
+          spans.push({ start: t, end: Math.min(t + bucketMs, r.end) });
+        } else spans[spans.length - 1].end = Math.min(t + bucketMs, r.end);
       }
       prev = empty;
     }
-    return { kind: "day", hourly, emptyH, total, from, hours: emptyMin / 60, cost: this._emptyCost(total) };
+    return { kind: "day", hourly, emptyH, total, from, spans, hours: emptyMin / 60, cost: this._emptyCost(total) };
   }
 
   _emptyGridPeriod(st, bats, r, pos, mk) {
@@ -1803,33 +1807,68 @@ class BatteryDayCard extends HTMLElement {
     const c = this._config;
     const ch = d.charge.hourly, dis = d.discharge.hourly;
     const mc = Math.max(...ch, 0.001), md = Math.max(...dis, 0.001);
-    const S = 240, cx = S / 2, cy = S / 2;
+    const eg = d.emptyGrid && d.emptyGrid.hours > 0.01 ? d.emptyGrid : null;
+    const S = 264, cx = S / 2, cy = S / 2;
     const P = (r, a) => [cx + r * Math.sin(a), cy - r * Math.cos(a)];
     const arc = (r1, r2, a0, a1) => {
       const [x1, y1] = P(r2, a0), [x2, y2] = P(r2, a1), [x3, y3] = P(r1, a1), [x4, y4] = P(r1, a0);
-      return `M${x1},${y1}A${r2},${r2} 0 0 1 ${x2},${y2}L${x3},${y3}A${r1},${r1} 0 0 0 ${x4},${y4}Z`;
+      const big = a1 - a0 > Math.PI ? 1 : 0;
+      return `M${x1},${y1}A${r2},${r2} 0 ${big} 1 ${x2},${y2}L${x3},${y3}A${r1},${r1} 0 ${big} 0 ${x4},${y4}Z`;
     };
+    const ang = (t) => ((t - d.start) / DAY_MS) * 2 * Math.PI;
     let s = "";
+    const egMax = eg ? Math.max(...eg.hourly, 0.001) : 1;
     for (let h = 0; h < 24; h++) {
       const a0 = (h / 24) * 2 * Math.PI + 0.022, a1 = ((h + 1) / 24) * 2 * Math.PI - 0.022;
-      const t = `<title>${this._hourTitle(h, ch[h], dis[h])}</title>`;
-      s += `<path d="${arc(86, 114, a0, a1)}" fill="${alpha(c.charge_color, ch[h] > 0.005 ? 0.12 + 0.88 * (ch[h] / mc) : 0.06)}">${t}</path>`;
-      s += `<path d="${arc(55, 83, a0, a1)}" fill="${alpha(c.discharge_color, dis[h] > 0.005 ? 0.12 + 0.88 * (dis[h] / md) : 0.06)}">${t}</path>`;
+      const t = `<title>${this._hourTitle(h, ch[h], dis[h])}${eg && eg.emptyH[h] > 0 ? ` · ${this._t("empty_cell")}: ${this._kwh(eg.hourly[h])} kWh` : ""}</title>`;
+      s += `<path d="${arc(90, 116, a0, a1)}" fill="${alpha(c.charge_color, ch[h] > 0.005 ? 0.12 + 0.88 * (ch[h] / mc) : 0.06)}">${t}</path>`;
+      s += `<path d="${arc(eg ? 66 : 60, 87, a0, a1)}" fill="${alpha(c.discharge_color, dis[h] > 0.005 ? 0.12 + 0.88 * (dis[h] / md) : 0.06)}">${t}</path>`;
+      if (eg) {
+        const on = eg.emptyH[h] > 0;
+        const a = on ? (eg.hourly[h] > 0.005 ? 0.25 + 0.75 * (eg.hourly[h] / egMax) : 0.2) : 0.05;
+        s += `<path d="${arc(50, 63, a0, a1)}" fill="${alpha(c.grid_color, a)}">${t}</path>`;
+      }
+    }
+    // Bogen um die Leer-Zeitspannen (außen) + Beschriftung
+    const spanTxt = [];
+    if (eg) {
+      for (const sp of eg.spans) {
+        const a0 = ang(sp.start), a1 = Math.max(ang(sp.end), a0 + 0.02);
+        const r = 121;
+        const [x1, y1] = P(r, a0), [x2, y2] = P(r, a1);
+        s += `<path d="M${x1},${y1}A${r},${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x2},${y2}" class="emptyarc" style="stroke:${c.grid_color}"/>`;
+        for (const [px, py] of [[x1, y1], [x2, y2]]) s += `<circle cx="${px}" cy="${py}" r="2.2" fill="${c.grid_color}"/>`;
+        const endTxt = d.r.isCurrent && sp.end >= d.r.end - c.bucket_minutes * 60000 ? this._t("now") : fmtTime(sp.end) === "00:00" ? "24:00" : fmtTime(sp.end);
+        spanTxt.push(this._t("empty_span", { a: fmtTime(sp.start), b: endTxt }));
+      }
     }
     for (const h of [0, 6, 12, 18]) {
-      const [x, y] = P(44, (h / 24) * 2 * Math.PI);
-      s += `<text x="${x}" y="${y + 3}" class="ax" text-anchor="middle">${pad(h)}</text>`;
+      const [x, y] = P(eg ? 134 : 127, (h / 24) * 2 * Math.PI);
+      s += `<text x="${x}" y="${y + 3.5}" class="ax" text-anchor="middle">${pad(h)}</text>`;
     }
     if (d.r.isCurrent) {
-      const a = ((Date.now() - d.start) / DAY_MS) * 2 * Math.PI;
-      const [x1, y1] = P(52, a), [x2, y2] = P(118, a);
+      const a = ang(Date.now());
+      const [x1, y1] = P(eg ? 48 : 58, a), [x2, y2] = P(119, a);
       s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="now"/>`;
     }
-    s += `<text x="${cx}" y="${cy - 3}" text-anchor="middle" class="ctot" style="fill:${c.charge_color}">▲ ${this._kwh(d.charge.total)}</text>`;
-    s += `<text x="${cx}" y="${cy + 16}" text-anchor="middle" class="ctot" style="fill:${c.discharge_color}">▼ ${this._kwh(d.discharge.total)}</text>`;
-    return `<div class="heat clock"><svg viewBox="0 0 ${S} ${S}" class="clocksvg">${s}</svg>
-      <div class="clocklegend"><span><i style="background:${c.charge_color}"></i>${this._t("outer_charge")}</span>
-      <span><i style="background:${c.discharge_color}"></i>${this._t("inner_discharge")}</span><span class="muted">${this._t("center_sum")}</span></div></div>`;
+    if (eg) {
+      s += `<text x="${cx}" y="${cy - 12}" text-anchor="middle" class="ctot" style="fill:${c.charge_color}">▲ ${this._kwh(d.charge.total)}</text>`;
+      s += `<text x="${cx}" y="${cy + 5}" text-anchor="middle" class="ctot" style="fill:${c.discharge_color}">▼ ${this._kwh(d.discharge.total)}</text>`;
+      s += `<text x="${cx}" y="${cy + 21}" text-anchor="middle" class="ctot sm" style="fill:${c.grid_color}">⚡ ${this._kwh(eg.total)}</text>`;
+    } else {
+      s += `<text x="${cx}" y="${cy - 3}" text-anchor="middle" class="ctot" style="fill:${c.charge_color}">▲ ${this._kwh(d.charge.total)}</text>`;
+      s += `<text x="${cx}" y="${cy + 16}" text-anchor="middle" class="ctot" style="fill:${c.discharge_color}">▼ ${this._kwh(d.discharge.total)}</text>`;
+    }
+    const legend = [
+      `<span><i style="background:${c.charge_color}"></i>${this._t("outer_charge")}</span>`,
+      `<span><i style="background:${c.discharge_color}"></i>${this._t(eg ? "inner_discharge" : "inner_discharge_only")}</span>`,
+    ];
+    if (eg) {
+      legend.push(`<span><i style="background:${c.grid_color}"></i>${this._t("ring_empty")}</span>`);
+      legend.push(`<span class="spanl" style="--c:${c.grid_color}">${spanTxt.map(esc).join("<br>")}${eg.cost !== null && eg.total > 0.01 ? `<br><b>${this._kwh(eg.total)} kWh · ${this._money(eg.cost)}</b>` : `<br><b>${this._kwh(eg.total)} kWh</b>`}</span>`);
+    }
+    legend.push(`<span class="muted">${this._t("center_sum")}</span>`);
+    return `<div class="heat clock"><svg viewBox="0 0 ${S} ${S}" class="clocksvg">${s}</svg><div class="clocklegend">${legend.join("")}</div></div>`;
   }
 
   /** Woche/Monat: Wochentag × Stunde, Farbe = Netto */
@@ -2262,8 +2301,12 @@ class BatteryDayCard extends HTMLElement {
       .hax.indent { margin-left:42px; }
       .netlegend { display:flex; gap:14px; font-size:.7rem; font-weight:600; margin-bottom:4px; flex-wrap:wrap; }
       .heat.clock { flex-direction:row; align-items:center; justify-content:center; gap:22px; margin:12px 0 4px; flex-wrap:wrap; }
-      .clocksvg { width:220px; height:220px; flex:none; overflow:visible; }
+      .clocksvg { width:236px; height:236px; flex:none; overflow:visible; }
       .ctot { font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
+      .ctot.sm { font-size:12.5px; }
+      .emptyarc { fill:none; stroke-width:3; stroke-linecap:round; opacity:.9; }
+      .spanl { font-size:.74rem; color:var(--c); font-weight:600; padding-left:16px; line-height:1.35; }
+      .spanl b { color:var(--primary-text-color); font-weight:700; }
       .clocklegend { display:flex; flex-direction:column; gap:6px; font-size:.78rem; color:var(--primary-text-color); }
       .clocklegend i { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
       .clocklegend .muted { color:var(--secondary-text-color); }

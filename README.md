@@ -25,7 +25,7 @@ A Lovelace card for Home Assistant that shows **when and how strongly your home 
 - **Comparison line**: yesterday or Ø of the last 7 days (dashed, also shows the expected rest of today)
 - Optional **PV** and **grid import/export** lines to see *why* the battery charges or discharges
 - **Click to zoom**: 2 hours at 1‑minute resolution
-- Heatmap in three styles: **tile rows**, **net band** or **day clock** (24 h ring)
+- Heatmap in three styles: **tile rows**, **net band** or **day clock** (24 h ring) – the day clock adds an innermost ring and an outer arc for the time the battery was empty ("empty 21:40–06:15")
 - Top charging / discharging hours
 
 **Week, month & year view**

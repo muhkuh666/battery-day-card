@@ -20,7 +20,7 @@ Lovelace-Karte für Home Assistant, die zeigt, **wann und wie stark deine Hausba
 - **Vergleichslinie**: gestern oder Ø der letzten 7 Tage (gestrichelt, zeigt auch den erwarteten Rest des Tages)
 - Optional **PV**- und **Netzbezug/Einspeisung**-Linien – damit siehst du, *warum* die Batterie lädt oder entlädt
 - **Zoom per Klick**: 2 Stunden in Minutenauflösung
-- Heatmap in drei Stilen: **Kachelreihen**, **Netto-Band** oder **Tagesuhr** (24-h-Ring)
+- Heatmap in drei Stilen: **Kachelreihen**, **Netto-Band** oder **Tagesuhr** (24-h-Ring) – die Tagesuhr zeigt zusätzlich einen inneren Ring und einen Bogen für die Zeit, in der die Batterie leer war („leer 21:40–06:15“)
 - Stärkste Lade- und Entladestunden
 
 **Woche, Monat & Jahr**

@@ -1,12 +1,13 @@
-## Battery Day Card 2.3 🪫⚡
+## Battery Day Card 2.4 🕘🪫
 
 ### New / Neu
-- **Grid import while battery empty** – heatmap of the hours when the battery sat at its discharge limit and power came from the grid · **Netzbezug bei leerer Batterie** als Heatmap
-  - Day: kWh, cost, "empty from 21:40 · empty for 3 h 15 min" · Tag: kWh, Kosten, „leer ab … · … leer“
-  - Week / month / year: weekday × hour pattern, "empty on 9 of 21 days", "Ø empty from 22:10" · Woche/Monat/Jahr: Muster, „an 9 von 21 Tagen leer“, „Ø leer ab 22:10“
-  - Shows how much a bigger battery (or a lower discharge limit) could have saved · zeigt, was eine größere Batterie hätte sparen können
+- **Day clock shows when the battery was empty** · **Tagesuhr zeigt, wann die Batterie leer war**
+  - innermost ring: grid import per hour while the battery was empty · innerer Ring: Netzbezug je Stunde bei leerer Batterie
+  - outer arc marks the empty period(s), e.g. "empty 21:40–06:15" (or "–now") · Bogen außen markiert die Leer-Zeiten, z. B. „leer 21:40–06:15“
+  - centre adds ⚡ kWh from the grid; legend shows kWh and cost · Mitte zusätzlich ⚡ kWh aus dem Netz, Legende mit kWh und Kosten
+- Only appears on days the battery was actually empty – otherwise the clock stays as before · erscheint nur an Tagen, an denen die Batterie leer war
 
-New option: `show_empty_grid` (needs `grid_entity` + `soc_entity`; on by default). · Neue Option `show_empty_grid`.
+Use `heatmap_style: clock` (needs `grid_entity` + `soc_entity`). · Mit `heatmap_style: clock`.
 
 **Install:** HACS → Custom repositories → `https://github.com/muhkuh666/battery-day-card` (type **Dashboard**)
 
