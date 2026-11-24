@@ -4,7 +4,7 @@
  * mit Spitzen, Heatmap, Wirkungsgrad, Zyklen, Ersparnis und Prognose.
  * https://github.com/muhkuh666/battery-day-card
  */
-const CARD_VERSION = "2.4.0";
+const CARD_VERSION = "2.5.0";
 
 const HOUR_MS = 3600 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -64,6 +64,8 @@ const DEFAULTS = {
   show_status: true,
   show_insights: true,
   show_live: true,
+  live_size: "m", // s | m | l
+  text_size: 100, // Prozent
   show_empty_grid: true,
   live_animation: true,
   show_flow: true,
@@ -330,10 +332,28 @@ class BatteryDayCard extends HTMLElement {
 
   connectedCallback() {
     this._restartTimer();
+    if (!this._ro && window.ResizeObserver) {
+      this._ro = new ResizeObserver((entries) => {
+        const w = Math.round(entries[0].contentRect.width);
+        if (!w || Math.abs(w - (this._w || 0)) < 16) return;
+        const first = !this._w;
+        this._w = w;
+        clearTimeout(this._roT);
+        this._roT = setTimeout(() => this._render(), first ? 0 : 150);
+      });
+    }
+    this._ro?.observe(this);
   }
   disconnectedCallback() {
     clearInterval(this._timer);
     this._timer = null;
+    this._ro?.disconnect();
+  }
+
+  /** Zeichenbreite der Diagramme = echte Breite (keine verzerrte Schrift) */
+  _chartW() {
+    const inner = (this._w || 600) - 32;
+    return Math.max(280, Math.min(1400, inner));
   }
   _restartTimer() {
     clearInterval(this._timer);
@@ -845,12 +865,12 @@ class BatteryDayCard extends HTMLElement {
   _bannerHtml(info) {
     const { state, p, soc, time } = info;
     const title = state === "charging" ? this._t("charging_now") : state === "discharging" ? this._t("discharging_now") : this._t("standby");
-    const pow = `${this._kw(Math.abs(p))} kW${soc !== null ? ` · ${this._num(soc, 0)} %` : ""}`;
+    const pow = `${this._kw(Math.abs(p))}\u00a0kW${soc !== null ? ` · ${this._num(soc, 0)}\u00a0%` : ""}`;
     let right = "";
     if (time?.done) right = `<div class="ltime"><b>${time.done}</b></div>`;
     else if (time)
-      right = `<div class="ltime"><small>${time.label}</small><b data-lv="dur">${time.dur}</b><small data-lv="at">${time.at ? this._t("approx", { t: time.at }) : ""}${time.note ? ` · ${time.note}` : ""}</small></div>`;
-    return `<div class="live ${state}">
+      right = `<div class="ltime"><small>${time.label}</small><b data-lv="dur">${time.dur}</b><small><span data-lv="at">${time.at ? this._t("approx", { t: time.at }) : ""}</span>${time.note ? `<span class="nt"><span class="sep">${time.at ? " · " : ""}</span>${time.note}</span>` : ""}</small></div>`;
+    return `<div class="live ${state} size-${["s", "m", "l"].includes(this._config.live_size) ? this._config.live_size : "m"}">
       <div class="batt">${this._batterySvg(state, soc === null ? null : Math.round(soc))}</div>
       <div class="ltxt"><div class="lstate">${title}</div><div class="lpow" data-lv="pow">${pow}</div></div>
       ${right}
@@ -1580,7 +1600,8 @@ class BatteryDayCard extends HTMLElement {
   _svgDay(s, zoomed, compare) {
     const c = this._config;
     const hasSoc = s.soc && s.soc.length;
-    const W = 640, H = c.chart_height + 10, L = 38, R = hasSoc ? 34 : 12, T = 16, B = 22;
+    const fs = Math.max(0.6, Math.min(2, (Number(c.text_size) || 100) / 100));
+    const W = this._chartW(), H = c.chart_height + 10, L = Math.round(34 * fs + 4), R = hasSoc ? Math.round(30 * fs + 4) : 12, T = Math.round(14 * fs + 2), B = Math.round(18 * fs + 4);
     const iw = W - L - R, ih = H - T - B, mid = T + ih / 2;
     const ca = s.charge.avg, da = s.discharge.avg, n = ca.length;
     this._geo = { W, L, iw, n, kind: "day", s, zoomed, compare };
@@ -1591,8 +1612,13 @@ class BatteryDayCard extends HTMLElement {
     if (s.gridIn) vals.push(...s.gridIn.avg, ...s.gridOut.avg);
     const dataMax = Math.max(0.3, ...vals.map((v) => v || 0)) * 1.15;
     const maxV = c.y_max > 0 ? c.y_max : dataMax;
-    const step = maxV > 16 ? 8 : maxV > 8 ? 4 : maxV > 4 ? 2 : maxV > 2 ? 1 : maxV > 1 ? 0.5 : 0.25;
-    const top = c.y_max > 0 ? c.y_max : Math.ceil(maxV / step) * step;
+    const minPx = 15 * fs; // Mindestabstand der Skalenbeschriftung
+    const steps = [0.25, 0.5, 1, 2, 4, 5, 8, 10, 20, 50];
+    let step = steps[steps.length - 1], top = maxV;
+    for (const st of steps) {
+      const tp = c.y_max > 0 ? c.y_max : Math.ceil(maxV / st) * st;
+      if (((ih / 2) * st) / tp >= minPx) { step = st; top = tp; break; }
+    }
     const x = (i) => L + ((i + 0.5) / n) * iw;
     const xt = (t) => L + ((t - s.start) / s.spanMs) * iw;
     const y = (v, sign) => mid - sign * (Math.min(v, top) / top) * (ih / 2);
@@ -1687,8 +1713,8 @@ class BatteryDayCard extends HTMLElement {
           <linearGradient id="gd" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="${c.discharge_color}" stop-opacity=".75"/><stop offset="1" stop-color="${c.discharge_color}" stop-opacity=".05"/></linearGradient>
         </defs>
         ${g}
-        <text x="${L + 6}" y="${T + 10}" class="side" style="fill:${c.charge_color}">▲ ${this._t("charge")}</text>
-        <text x="${L + 6}" y="${H - B - 5}" class="side" style="fill:${c.discharge_color}">▼ ${this._t("discharge")}</text>
+        <text x="${W - R - 6}" y="${T + 10 * fs}" class="side" text-anchor="end" style="fill:${c.charge_color}">▲ ${this._t("charge")}</text>
+        <text x="${W - R - 6}" y="${H - B - 5}" class="side" text-anchor="end" style="fill:${c.discharge_color}">▼ ${this._t("discharge")}</text>
         ${shape(ca, 1, "gc", c.charge_color)}
         ${shape(da, -1, "gd", c.discharge_color)}
         ${compare ? thin(compare.charge, 1, c.charge_color, "cmp") + thin(compare.discharge, -1, c.discharge_color, "cmp") : ""}
@@ -1706,15 +1732,19 @@ class BatteryDayCard extends HTMLElement {
 
   _svgPeriod(d, height) {
     const c = this._config;
-    const W = 640, H = height + 10, L = 38, R = 12, T = 16, B = 22;
+    const fs = Math.max(0.6, Math.min(2, (Number(c.text_size) || 100) / 100));
+    const W = this._chartW(), H = height + 10, L = Math.round(34 * fs + 4), R = 12, T = Math.round(14 * fs + 2), B = Math.round(18 * fs + 4);
     const iw = W - L - R, ih = H - T - B, mid = T + ih / 2;
     const U = d.units;
     const n = U.length;
     const now = Date.now();
     this._geo = { W, L, iw, n, kind: "period", d };
     const maxV = Math.max(0.5, ...U.map((u) => u.c), ...U.map((u) => u.d)) * 1.12;
-    const step = maxV > 400 ? 200 : maxV > 200 ? 100 : maxV > 100 ? 50 : maxV > 40 ? 20 : maxV > 20 ? 10 : maxV > 10 ? 5 : maxV > 4 ? 2 : 1;
-    const top = Math.ceil(maxV / step) * step;
+    let step = 200, top = Math.ceil(maxV / 200) * 200;
+    for (const st of [1, 2, 5, 10, 20, 50, 100, 200]) {
+      const tp = Math.ceil(maxV / st) * st;
+      if (((ih / 2) * st) / tp >= 15 * fs) { step = st; top = tp; break; }
+    }
     const y = (v, sg) => mid - sg * (v / top) * (ih / 2);
     const bw = (iw / n) * (n > 10 ? 0.7 : 0.55);
     let g = "";
@@ -1749,8 +1779,8 @@ class BatteryDayCard extends HTMLElement {
     g = shade + g;
     return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" id="svg" style="height:${height}px" class="clickable">
       ${g}
-      <text x="${L + 6}" y="${T + 10}" class="side" style="fill:${c.charge_color}">▲ ${this._t("charge")}</text>
-      <text x="${L + 6}" y="${H - B - 5}" class="side" style="fill:${c.discharge_color}">▼ ${this._t("discharge")}</text>
+      <text x="${W - R - 6}" y="${T + 10 * fs}" class="side" text-anchor="end" style="fill:${c.charge_color}">▲ ${this._t("charge")}</text>
+      <text x="${W - R - 6}" y="${H - B - 5}" class="side" text-anchor="end" style="fill:${c.discharge_color}">▼ ${this._t("discharge")}</text>
       ${bars}
       <line id="cursor" x1="0" x2="0" y1="${T}" y2="${H - B}" class="cursor"/>
       <rect id="hit" x="${L}" y="${T}" width="${iw}" height="${ih}" fill="transparent"/>
@@ -2144,8 +2174,14 @@ class BatteryDayCard extends HTMLElement {
   }
 
   _css() {
+    return this._cssRaw().replace(/font-size:\s*([\d.]+)(rem|px|em)/g, (m, v, u) => (u === "em" ? m : `font-size:calc(${v}${u} * var(--bdc-fs, 1))`));
+  }
+
+  _cssRaw() {
     const c = this._config;
+    const fs = Math.max(0.6, Math.min(2, (Number(c.text_size) || 100) / 100));
     return `
+      :host { --bdc-fs:${fs}; }
       ${this._themeCss()}
       :host { display:block; --bdc-charge:${c.charge_color}; --bdc-dis:${c.discharge_color}; --bdc-soc:${c.soc_color}; --bdc-now:${c.now_color}; --bdc-grid:${c.grid_color}; }
       ha-card { display:block; padding:16px 16px 14px; overflow:hidden; height:100%; box-sizing:border-box; container-type:inline-size; }
@@ -2214,6 +2250,25 @@ class BatteryDayCard extends HTMLElement {
       .ltime { text-align:right; flex:none; }
       .ltime small { display:block; font-size:.7rem; color:var(--secondary-text-color); white-space:nowrap; }
       .ltime b { display:block; font-size:1.15rem; font-weight:700; color:var(--primary-text-color); font-variant-numeric:tabular-nums; white-space:nowrap; }
+      .live.size-m { padding:12px 16px; gap:16px; }
+      .live.size-m .batt, .live.size-m .battsvg { width:96px; } .live.size-m .battsvg { height:39px; }
+      .live.size-m .lstate { font-size:1.2rem; } .live.size-m .lpow { font-size:.95rem; margin-top:1px; }
+      .live.size-m .ltime b { font-size:1.6rem; line-height:1.15; } .live.size-m .ltime small { font-size:.78rem; }
+      .live.size-l { padding:14px 18px; gap:18px; border-radius:16px; }
+      .live.size-l .batt, .live.size-l .battsvg { width:120px; } .live.size-l .battsvg { height:49px; }
+      .live.size-l .lstate { font-size:1.45rem; } .live.size-l .lpow { font-size:1.08rem; margin-top:2px; }
+      .live.size-l .ltime b { font-size:2.05rem; line-height:1.1; } .live.size-l .ltime small { font-size:.85rem; }
+      .live .lstate, .live .lpow { white-space:normal; overflow-wrap:anywhere; line-height:1.2; }
+      @container (max-width:440px) {
+        .live .nt { display:block; } .live .sep { display:none; }
+        .live.size-m { gap:12px; padding:11px 13px; }
+        .live.size-m .batt, .live.size-m .battsvg { width:76px; } .live.size-m .battsvg { height:31px; }
+        .live.size-m .lstate { font-size:1.1rem; } .live.size-m .lpow { font-size:.88rem; } .live.size-m .ltime b { font-size:1.45rem; }
+        .live.size-l { gap:13px; padding:13px 14px; }
+        .live.size-l .batt, .live.size-l .battsvg { width:84px; } .live.size-l .battsvg { height:34px; }
+        .live.size-l .lstate { font-size:1.15rem; } .live.size-l .lpow { font-size:.95rem; } .live.size-l .ltime b { font-size:1.6rem; }
+        .live.size-l .ltime small { font-size:.78rem; }
+      }
       .compact .live { padding:8px 10px; } .compact .batt, .compact .battsvg { width:60px; } .compact .battsvg { height:25px; }
       @media (prefers-reduced-motion: reduce) { .battsvg.glow, .stripes, .pulse2, .flow circle, .flowin circle, .pulse { animation:none !important; } .flow circle, .flowin circle { opacity:.8; } }
       .eg { margin:12px 0 4px; padding:10px 12px 8px; border-radius:12px; border:1px solid color-mix(in srgb, var(--bdc-grid) 30%, transparent);
@@ -2341,7 +2396,7 @@ const ED = {
       compare: "Vergleichslinie", show_pv: "PV-Linie", show_grid_power: "Netz-Linie", show_peaks: "Spitzen markieren", animate_peaks: "Spitzen animieren",
       show_now_line: "„jetzt“-Linie", show_grid: "Gitterlinien", show_soc: "SoC-Linie", zoom_on_click: "Zoom per Klick",
       layout: "Layout", show_stats: "Kennzahlen", show_status: "Batterie-Status", show_insights: "Auswertung", show_live: "Live-Status (lädt / entlädt)", live_animation: "Animation",
-      show_flow: "Energiefluss (PV / Netz / Haus / Batterie)", show_empty_grid: "Netzbezug bei leerer Batterie", show_soh_trend: "SoH-Trend", highlight_weekends: "Wochenende & Feiertage markieren",
+      show_flow: "Energiefluss (PV / Netz / Haus / Batterie)", text_size: "Textgröße", live_size: "Größe Live-Status", show_empty_grid: "Netzbezug bei leerer Batterie", show_soh_trend: "SoH-Trend", highlight_weekends: "Wochenende & Feiertage markieren",
       show_export: "Bild-Export-Button", load_entity: "Hausverbrauch (Leistung)", evening_start: "Abend ab", evening_end: "Abend bis", holiday_calendar: "Feiertags-Kalender",
       show_heatmap: "Heatmap", heatmap_style: "Heatmap-Stil", show_top: "Top-Stunden/-Tage", top_count: "Anzahl Top-Einträge",
       theme: "Farbschema", charge_color: "Laden", discharge_color: "Entladen", soc_color: "SoC", now_color: "„jetzt“-Linie", pv_color: "PV", grid_color: "Netz",
@@ -2364,6 +2419,7 @@ const ED = {
       evening_start: "Zeitfenster für den Batterie-Anteil „abends“ (z. B. 18 bis 6 Uhr).",
       holiday_calendar: "z. B. Kalender der Integration „Feiertage“ (Holiday).",
       show_flow: "Braucht PV- und/oder Netz-Sensor.",
+      text_size: "Skaliert alle Schriften der Karte, auch in den Diagrammen.",
       show_empty_grid: "Heatmap, wann die Batterie leer war und Strom aus dem Netz kam – braucht Netz- und SoC-Sensor.",
     },
     sections: { sensors: "Batterie", battery2: "Zweite Batterie (optional)", extra: "PV, Netz & Preis", header: "Kopfzeile & Ansicht", chart: "Diagramm", sections: "Bereiche", colors: "Farben", advanced: "Erweitert" },
@@ -2389,7 +2445,7 @@ const ED = {
       compare: "Comparison line", show_pv: "PV line", show_grid_power: "Grid line", show_peaks: "Mark peaks", animate_peaks: "Animate peaks",
       show_now_line: "\"now\" line", show_grid: "Grid lines", show_soc: "SoC line", zoom_on_click: "Click to zoom",
       layout: "Layout", show_stats: "Key figures", show_status: "Battery status", show_insights: "Insights", show_live: "Live status (charging / discharging)", live_animation: "Animation",
-      show_flow: "Energy flow (PV / grid / home / battery)", show_empty_grid: "Grid import while battery empty", show_soh_trend: "SoH trend", highlight_weekends: "Highlight weekends & holidays",
+      show_flow: "Energy flow (PV / grid / home / battery)", text_size: "Text size", live_size: "Live status size", show_empty_grid: "Grid import while battery empty", show_soh_trend: "SoH trend", highlight_weekends: "Highlight weekends & holidays",
       show_export: "Image export button", load_entity: "Home consumption (power)", evening_start: "Evening from", evening_end: "Evening until", holiday_calendar: "Holiday calendar",
       show_heatmap: "Heatmap", heatmap_style: "Heatmap style", show_top: "Top hours/days", top_count: "Number of top entries",
       theme: "Color scheme", charge_color: "Charge", discharge_color: "Discharge", soc_color: "SoC", now_color: "\"now\" line", pv_color: "PV", grid_color: "Grid",
@@ -2412,6 +2468,7 @@ const ED = {
       evening_start: "Time window for the \"evening\" battery share (e.g. 18 to 6).",
       holiday_calendar: "e.g. a calendar of the Holiday integration.",
       show_flow: "Needs a PV and/or grid sensor.",
+      text_size: "Scales all fonts of the card, incl. chart labels.",
       show_empty_grid: "Heatmap of when the battery was empty and power came from the grid – needs grid and SoC sensor.",
     },
     sections: { sensors: "Battery", battery2: "Second battery (optional)", extra: "PV, grid & price", header: "Header & view", chart: "Chart", sections: "Sections", colors: "Colors", advanced: "Advanced" },
@@ -2526,6 +2583,8 @@ class BatteryDayCardEditor extends HTMLElement {
       ]),
       sec("sections", "mdi:view-dashboard-outline", [
         { name: "layout", selector: sel([["full", o.full], ["compact", o.compact]]) },
+        { name: "text_size", selector: { number: { min: 70, max: 160, step: 5, mode: "slider", unit_of_measurement: "%" } } },
+        { name: "live_size", selector: sel([["s", "S"], ["m", "M"], ["l", "L"]]) },
         grid([
           { name: "show_stats", selector: bool },
           { name: "show_status", selector: bool },

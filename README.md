@@ -45,6 +45,7 @@ A Lovelace card for Home Assistant that shows **when and how strongly your home 
 - **Compact layout** for phones and side panels
 - **German & English**, follows your Home Assistant language
 - **Dark / light / automatic** color scheme, all colors selectable
+- Adjustable **text size** for the whole card and three sizes for the live status
 - **Save as image** – export the card as PNG (e.g. for forums)
 - **Everything configurable in the visual editor** – tap any key figure or status chip to open the entity's details
 
@@ -151,6 +152,8 @@ batteries:
 | **Sections** | | |
 | `layout` | `full` | `full` or `compact` |
 | `show_stats` / `show_status` / `show_insights` / `show_heatmap` / `show_top` | `true` | Show or hide sections |
+| `text_size` | `100` | Text size of the whole card in % (70–160), incl. chart labels |
+| `live_size` | `m` | Size of the live status: `s`, `m` or `l` |
 | `show_live` | `true` | Live status with time until full / empty (needs `soc_entity` + `capacity_kwh` for the times) |
 | `live_animation` | `true` | Animated battery (respects "reduce motion") |
 | `show_empty_grid` | `true` | Heatmap "grid import while battery empty" (needs `grid_entity` + `soc_entity`) |

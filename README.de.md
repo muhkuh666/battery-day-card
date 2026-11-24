@@ -40,6 +40,7 @@ Lovelace-Karte für Home Assistant, die zeigt, **wann und wie stark deine Hausba
 - **Kompakt-Layout** für Handy und Seitenleisten
 - **Deutsch & Englisch**, folgt der HA-Sprache
 - Farbschema **Dunkel / Hell / Automatisch**, alle Farben wählbar
+- **Textgröße** der ganzen Karte einstellbar (70–160 %, Option `text_size`), Live-Status in drei Größen (`live_size`: `s`/`m`/`l`)
 - **Als Bild speichern** – die Karte als PNG exportieren (z. B. für Foren)
 - **Alles im grafischen Editor einstellbar** – Antippen von Kennzahlen oder Status-Chips öffnet die Detailansicht des Sensors
 

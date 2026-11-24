@@ -1,13 +1,13 @@
-## Battery Day Card 2.4 🕘🪫
+## Battery Day Card 2.5 🔠
 
 ### New / Neu
-- **Day clock shows when the battery was empty** · **Tagesuhr zeigt, wann die Batterie leer war**
-  - innermost ring: grid import per hour while the battery was empty · innerer Ring: Netzbezug je Stunde bei leerer Batterie
-  - outer arc marks the empty period(s), e.g. "empty 21:40–06:15" (or "–now") · Bogen außen markiert die Leer-Zeiten, z. B. „leer 21:40–06:15“
-  - centre adds ⚡ kWh from the grid; legend shows kWh and cost · Mitte zusätzlich ⚡ kWh aus dem Netz, Legende mit kWh und Kosten
-- Only appears on days the battery was actually empty – otherwise the clock stays as before · erscheint nur an Tagen, an denen die Batterie leer war
+- **Text size** for the whole card (70–160 %, `text_size`) – scales all fonts incl. chart labels · **Textgröße** für die ganze Karte
+- **Live status in three sizes** (`live_size`: `s` / `m` / `l`) – new default **M** is noticeably bigger · **Live-Status in drei Größen**, neuer Standard M ist größer
 
-Use `heatmap_style: clock` (needs `grid_entity` + `soc_entity`). · Mit `heatmap_style: clock`.
+### Improved / Verbessert
+- Charts are drawn at the card's real width – no more squeezed axis labels on narrow cards · Diagramme in echter Breite, keine gestauchte Schrift mehr
+- Axis labels adapt their spacing to the text size; "▲ Charge / ▼ Discharge" moved to the right · Skalenbeschriftung passt sich an
+- Narrow cards: "down to 15 %" moves to its own line, texts wrap instead of being cut off · schmale Karten: Text bricht um statt abgeschnitten zu werden
 
 **Install:** HACS → Custom repositories → `https://github.com/muhkuh666/battery-day-card` (type **Dashboard**)
 
